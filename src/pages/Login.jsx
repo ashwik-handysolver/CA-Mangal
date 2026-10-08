@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import data from '../data/context.json';
+import users from '../data/users.json';
 
 export default function Login() {
   const [formData, setFormData] = useState({
@@ -22,13 +22,13 @@ export default function Login() {
 
     // Simulate network request
     setTimeout(() => {
-      const user = data.users.find(
+      const user = users.find(
         (u) => u.email === formData.email && u.password === formData.password
       );
 
       if (user) {
         localStorage.setItem('currentUser', JSON.stringify(user));
-        navigate('/dashboard');
+        navigate('/app/dashboard');
       } else {
         setError('Invalid email or password. (Hint: use admin@firm.com / password123)');
       }
@@ -49,8 +49,8 @@ export default function Login() {
 
       <div className="relative z-10 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="h-12 w-12 bg-white/10 backdrop-blur-md flex items-center justify-center rounded-xl shadow-lg border border-white/20">
-            <span className="text-white font-bold text-xl tracking-tight">CA</span>
+          <div className="bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-2xl shadow-xl border border-white/30 inline-flex items-center justify-center">
+            <img src="/logo.png" alt="CA Atul Mangal & Co" className="h-14 md:h-16 w-auto object-contain" />
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-white">
@@ -58,7 +58,7 @@ export default function Login() {
         </h2>
         <p className="mt-2 text-center text-sm text-blue-100">
           Or{' '}
-          <Link to="/signup" className="font-semibold text-white hover:text-blue-200 hover:underline underline-offset-4 transition-all">
+          <Link to="/signup" className="font-semibold text-white hover:text-blue-200 hover:underline underline-offset-4">
             register a new firm
           </Link>
         </p>
@@ -118,7 +118,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Signing in...' : 'Sign in'}
               </button>

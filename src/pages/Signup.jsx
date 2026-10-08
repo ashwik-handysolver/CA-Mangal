@@ -47,8 +47,8 @@ export default function Signup() {
 
       <div className="relative z-10 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="h-12 w-12 bg-white/10 backdrop-blur-md flex items-center justify-center rounded-xl shadow-lg border border-white/20">
-            <span className="text-white font-bold text-xl tracking-tight">CA</span>
+          <div className="bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-2xl shadow-xl border border-white/30 inline-flex items-center justify-center">
+            <img src="/logo.png" alt="CA Atul Mangal & Co" className="h-14 md:h-16 w-auto object-contain" />
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-white">
@@ -56,7 +56,7 @@ export default function Signup() {
         </h2>
         <p className="mt-2 text-center text-sm text-blue-100">
           Already have an account?{' '}
-          <Link to="/login" className="font-semibold text-white hover:text-blue-200 hover:underline underline-offset-4 transition-all">
+          <Link to="/login" className="font-semibold text-white hover:text-blue-200 hover:underline underline-offset-4">
             Sign in
           </Link>
         </p>
@@ -78,7 +78,7 @@ export default function Signup() {
                 </p>
               </div>
               <div className="pt-2">
-                <Link to="/login" className="inline-flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all">
+                <Link to="/login" className="inline-flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
                   Return to Sign In
                 </Link>
               </div>
@@ -172,7 +172,7 @@ export default function Signup() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? 'Registering...' : 'Create dummy account'}
                 </button>
