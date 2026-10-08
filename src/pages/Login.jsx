@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import users from '../data/users.json';
+import { supabase } from '../lib/supabase';
 
 export default function Login() {
   const [formData, setFormData] = useState({
@@ -15,25 +15,25 @@ export default function Login() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    // Simulate network request
-    setTimeout(() => {
-      const user = users.find(
-        (u) => u.email === formData.email && u.password === formData.password
-      );
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    });
 
-      if (user) {
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        navigate('/app/dashboard');
-      } else {
-        setError('Invalid email or password. (Hint: use admin@firm.com / password123)');
-      }
-      setLoading(false);
-    }, 800);
+    if (signInError) {
+      setError(signInError.message);
+    } else if (data.user) {
+      // Sync with localStorage for legacy compatibility in other components
+      localStorage.setItem('currentUser', JSON.stringify({ email: data.user.email }));
+      navigate('/app/dashboard');
+    }
+    
+    setLoading(false);
   };
 
   return (
@@ -66,9 +66,6 @@ export default function Login() {
 
       <div className="relative z-10 mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white/95 backdrop-blur-xl py-8 px-4 sm:rounded-2xl sm:px-10 border border-white/20 shadow-2xl">
-          <div className="mb-4 p-3 bg-blue-50 text-blue-800 text-sm rounded border border-blue-100">
-            <strong>Demo Account:</strong> admin@firm.com / password123
-          </div>
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg border border-red-100">

@@ -37,7 +37,7 @@ export default function Layout() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        <div className="pt-4 px-4 pb-0 z-20 shrink-0">
+        <div className="sm:pt-4 pt-2 px-4 pb-0 z-[100] shrink-0">
           <div className="w-full max-w-[1500px] mx-auto">
             <Header />
           </div>
@@ -51,6 +51,7 @@ export default function Layout() {
     </div>
   );
 }
+
 
 
 

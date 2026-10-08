@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -66,9 +67,9 @@ return (
             {/* Header */}
             <div className={`h-20 flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3.5'} border-b border-slate-100 dark:border-darkborder shrink-0 transition-layout duration-300`}>
               {isCollapsed ? (
-                <div className="w-12 h-12 bg-white dark:bg-slate-900/90 dark:border-slate-800 rounded-xl border border-slate-200/80 shadow-sm flex items-center justify-center p-1.5 overflow-hidden shrink-0">
-                  <img src="/logo.png" alt="CA Mangal & Co" className="h-9 w-auto max-w-none object-left object-cover dark:brightness-[0.92] dark:contrast-[1.05]" />
-                </div>
+                <div className="w-12 h-12 bg-white dark:bg-slate-900/90 dark:border-slate-800 rounded-xl border border-slate-200/80 shadow-sm flex items-center justify-center overflow-hidden shrink-0">
+                    <img src="/logo.png" alt="CA Mangal & Co" className="w-[44px] h-[44px] object-cover object-left max-w-none scale-[1.0] translate-x-1.6 dark:brightness-[0.92] dark:contrast-[1.05]" />
+                  </div>
               ) : (
                 <div className="w-full flex items-center justify-center py-2 px-3 bg-white/95 dark:bg-slate-900/80 dark:border-slate-800/90 rounded-xl shadow-sm border border-slate-200/80 transition-all">
                   <img src="/logo.png" alt="CA Mangal & Co" className="h-11 w-full object-contain rounded dark:brightness-[0.92] dark:contrast-[1.05]" />
@@ -233,7 +234,7 @@ return (
                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
                    Toggle Dark Mode
                  </button>
-                 <button onClick={() => navigate('/')} className="flex items-center gap-4 w-full text-left px-5 py-4 rounded-xl text-base font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-darkbg text-red-500 hover:text-red-600">
+                 <button onClick={async () => { await supabase.auth.signOut(); localStorage.removeItem('currentUser'); navigate('/login'); }} className="flex items-center gap-4 w-full text-left px-5 py-4 rounded-xl text-base font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-darkbg text-red-500 hover:text-red-600">
                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                    Log Out
                  </button>

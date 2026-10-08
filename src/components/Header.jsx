@@ -1,5 +1,8 @@
+
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 const routeTitleMap = {
   '/app/dashboard': 'Dashboard',
@@ -44,7 +47,8 @@ export default function Header() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem('currentUser');
     navigate('/login');
   };
@@ -53,7 +57,6 @@ export default function Header() {
     <header className="h-16 w-full rounded-2xl border border-slate-200/90 dark:border-darkborder bg-white/90 dark:bg-darkcard/90 backdrop-blur-md flex items-center justify-between px-6 shadow-sm transition-all duration-300">
       {/* Page Title at Start of Header */}
       <div className="flex items-center gap-3">
-
         <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
           {currentTitle}
         </h1>
@@ -106,4 +109,7 @@ export default function Header() {
     </header>
   );
 }
+
+
+
 

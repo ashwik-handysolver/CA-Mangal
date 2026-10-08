@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 export default function Signup() {
   const [formData, setFormData] = useState({
@@ -16,7 +17,7 @@ export default function Signup() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
 
@@ -27,11 +28,32 @@ export default function Signup() {
 
     setLoading(true);
 
-    // Simulate network request
-    setTimeout(() => {
-      setSuccess(true);
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: {
+        data: {
+          firm_name: formData.firmName,
+        }
+      }
+    });
+
+    if (signUpError) {
+      setError(signUpError.message);
       setLoading(false);
-    }, 800);
+      return;
+    }
+
+    // If "Confirm email" is OFF, Supabase returns a session immediately!
+    if (data.session) {
+      localStorage.setItem('currentUser', JSON.stringify({ email: data.user.email }));
+      navigate('/app/dashboard');
+      return;
+    }
+
+    // If confirmation is still required
+    setSuccess(true);
+    setLoading(false);
   };
 
   return (
@@ -74,7 +96,7 @@ export default function Signup() {
               <div>
                 <h3 className="text-lg font-medium text-slate-900">Registration Successful</h3>
                 <p className="mt-2 text-sm text-slate-600">
-                  Your dummy account has been created! In a real app, we'd save this to a database.
+                  Please check your email for a confirmation link to verify your account.
                 </p>
               </div>
               <div className="pt-2">
@@ -174,7 +196,7 @@ export default function Signup() {
                   disabled={loading}
                   className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? 'Registering...' : 'Create dummy account'}
+                  {loading ? 'Registering...' : 'Create account'}
                 </button>
               </div>
             </form>

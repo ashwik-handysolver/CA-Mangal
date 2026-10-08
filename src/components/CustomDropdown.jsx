@@ -62,7 +62,7 @@ export default function CustomDropdown({ options, value, onChange, placeholder, 
       <div 
         className={`absolute z-[60] mt-3 left-0 w-max min-w-full bg-white dark:bg-darkcard rounded-lg shadow-xl border border-slate-200 dark:border-darkborder duration-200 origin-top-left ${isOpen ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'}`}
       >
-        <div className="py-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+        <div className="py-1.5 max-h-48 overflow-y-auto custom-scrollbar" data-lenis-prevent="true">
            {allowAll && (
              <div 
                className="px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-darkborder hover:text-blue-700 dark:hover:text-white cursor-pointer" 
@@ -96,3 +96,4 @@ export default function CustomDropdown({ options, value, onChange, placeholder, 
     </div>
   );
 }
+

@@ -82,17 +82,11 @@ export default function SubTable({ title, itemLabel, initialData }) {
   };
 
   return (
-    <div className="flex flex-col mb-10">
-      {/* Top Meta info above table */}
-      <div className="flex items-center justify-between pb-3 px-1">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight">{title}</h3>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Showing <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + rowsPerPage, filteredItems.length)}</span> out of <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length}</span>
-        </span>
-      </div>
+    <div className="flex flex-col">
+      
 
       <div className="bg-white dark:bg-darkcard rounded-xl shadow-sm border border-slate-200 dark:border-darkborder overflow-hidden flex flex-col">
-        <div className="overflow-auto max-h-[calc(100vh-260px)] custom-scrollbar" data-lenis-prevent>
+        <div className="overflow-auto max-h-[calc(100vh-160px)] md:max-h-[calc(100vh-220px)] custom-scrollbar" data-lenis-prevent>
           <table className="hidden md:table w-full text-left border-collapse">
             <thead className="sticky top-0 z-30 shadow-sm bg-white/95 dark:bg-darkcard/95 backdrop-blur-sm">
               <tr className="text-slate-500">
@@ -171,13 +165,16 @@ export default function SubTable({ title, itemLabel, initialData }) {
 
         </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-end px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-            <div className="flex items-center gap-1 text-center">
-              {renderPageNumbers()}
-            </div>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Showing <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + rowsPerPage, filteredItems.length)}</span> out of <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length}</span>
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1 text-center">
+                {renderPageNumbers()}
+              </div>
+            )}
           </div>
-        )}
       </div>
 
       {/* Add Modal */}
@@ -216,6 +213,7 @@ export default function SubTable({ title, itemLabel, initialData }) {
     </div>
   );
 }
+
 
 
 

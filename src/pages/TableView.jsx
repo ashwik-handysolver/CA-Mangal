@@ -145,7 +145,7 @@ export default function TableView() {
   };
 
   return (
-    <div className="animate-in fade-in duration-500 w-full pb-10">
+    <div className="animate-in fade-in duration-500 w-full">
       {renderTable()}
     </div>
   );
