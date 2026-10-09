@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useSession } from '../lib/auth';
 import AuthShell, { authInput } from '../components/AuthShell';
 
 export default function Signup() {
@@ -9,6 +10,7 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
+  const session = useSession();
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
@@ -37,14 +39,16 @@ export default function Signup() {
 
     // If "Confirm email" is off, Supabase returns a session immediately
     if (data.session) {
-      localStorage.setItem('currentUser', JSON.stringify({ email: data.user.email }));
-      navigate('/app/dashboard');
+      navigate('/app/dashboard', { replace: true });
       return;
     }
 
     setSuccess(true);
     setLoading(false);
   };
+
+  // Already signed in
+  if (session) return <Navigate to="/app/dashboard" replace />;
 
   const field = (id, label, type, placeholder, autoComplete) => (
     <div>

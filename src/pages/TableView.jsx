@@ -1,21 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useParams, Navigate, useNavigate } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router-dom';
 import SubTable from '../components/SubTable';
 import AdvancedTable from '../components/AdvancedTable';
 import { ListSkeleton } from '../components/Skeleton';
-import { TABLES, loadTable, saveRow, deleteRow } from '../lib/tables';
+import { TABLES, loadTable, saveRow, deleteRow, insertRows } from '../lib/tables';
+import { fyFilterOptions } from '../lib/financialYear';
 
 export default function TableView() {
   const { tableName } = useParams();
-  const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const [state, setState] = useState({ key: null, rows: null, lookups: {}, error: null });
   const valid = !!TABLES[tableName];
-
-  // Enforce authentication
-  useEffect(() => {
-    if (!user.email) navigate('/login');
-  }, [user.email, navigate]);
 
   useEffect(() => {
     if (!valid) return;
@@ -26,7 +20,6 @@ export default function TableView() {
     return () => { cancelled = true; };
   }, [tableName, valid]);
 
-  if (!user.email) return null;
   if (!valid) return <Navigate to="/app/dashboard" replace />;
   if (state.key !== tableName) {
     return <ListSkeleton />;
@@ -47,18 +40,19 @@ export default function TableView() {
 
   const serviceStatusColumns = [
     { key: 'index', label: 'Index', type: 'text' },
-    { key: 'clientName', label: 'Client', type: 'select', options: names(L.clients) },
-    { key: 'serviceType', label: 'Type Of Service', type: 'select', options: names(L.services) },
-    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: names(L.modes) },
-    { key: 'fees', label: 'Fees', type: 'currency' },
-    { key: 'received', label: 'Received', type: 'currency' },
+    { key: 'srNo', label: 'SR No', type: 'text', readOnly: true },
+    { key: 'clientName', label: 'Client', type: 'select', options: names(L.clients), importRequired: true, aliases: ['Client Name', 'Name', 'Party', 'Party Name'] },
+    { key: 'serviceType', label: 'Type Of Service', type: 'select', options: names(L.services), aliases: ['Service Type', 'Service', 'Services', 'Type'] },
+    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: names(L.modes), aliases: ['Payment Mode', 'Mode'] },
+    { key: 'fees', label: 'Fees', type: 'currency', aliases: ['Fee', 'Total Fees', 'Amount', 'Bill Amount'] },
+    { key: 'received', label: 'Received', type: 'currency', aliases: ['Amount Received', 'Received Amount', 'Paid Amount'] },
     { key: 'balance', label: 'Balance', type: 'currency', computed: (row) => (Number(row.fees || 0) - Number(row.received || 0)) },
-    { key: 'assignedTo', label: 'Assigned To', type: 'text' },
-    { key: 'dateOfService', label: 'Date Of Service', type: 'date' },
-    { key: 'tags', label: 'Tags', type: 'select', options: names(L.tags) },
+    { key: 'assignedTo', label: 'Assigned To', type: 'text', aliases: ['Assigned', 'Staff', 'Employee'] },
+    { key: 'dateOfService', label: 'Date Of Service', type: 'date', aliases: ['Service Date', 'Date'] },
+    { key: 'tags', label: 'Tags', type: 'select', options: names(L.tags), aliases: ['Tag'] },
     { key: 'remarks', label: 'Remarks', type: 'textarea' },
-    { key: 'paymentStatus', label: 'Payment Status', type: 'toggle' },
-    { key: 'jobCompleted', label: 'Job Completed', type: 'toggle' },
+    { key: 'paymentStatus', label: 'Payment Status', type: 'toggle', aliases: ['Paid', 'Payment Received'] },
+    { key: 'jobCompleted', label: 'Job Completed', type: 'toggle', aliases: ['Completed', 'Job Status', 'Status'] },
     { key: 'notes', label: 'Notes', type: 'text' },
     { key: 'actions', label: 'Action', type: 'action' }
   ];
@@ -70,7 +64,7 @@ export default function TableView() {
     { key: 'expenseName', label: 'Expense Name', type: 'text', required: true },
     { key: 'expenseAmount', label: 'Expense Amount', type: 'currency', required: true },
     { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: names(L.modes) },
-    { key: 'services', label: 'Services', type: 'select', options: names(L.services) },
+    { key: 'services', label: 'Services', type: 'select', options: names(L.categories).filter((n) => n && n.trim()) },
     { key: 'notes', label: 'Notes', type: 'text' },
     { key: 'actions', label: 'Action', type: 'action' }
   ];
@@ -85,17 +79,19 @@ export default function TableView() {
 
   const clientColumns = [
     { key: 'index', label: 'Index', type: 'text' },
-    { key: 'name', label: 'Name', type: 'text' },
+    { key: 'name', label: 'Name', type: 'text', required: true },
     { key: 'fileNumber', label: 'File Number', type: 'text' },
     { key: 'email', label: 'Email', type: 'email' },
     { key: 'phoneNumber', label: 'Phone Number', type: 'text' },
     { key: 'address', label: 'Address', type: 'text' },
-    { key: 'clientType', label: 'Client Type', type: 'select', options: ['New Client', 'Old Client'] },
+    { key: 'clientType', label: 'Client Type', type: 'select', options: ['New Client', 'Old Client'], required: true },
     { key: 'clientYear', label: 'Client Year', type: 'select', options: names(L.years, 'label') },
     {
       key: 'clientNumber',
       label: 'New Client Number',
       type: 'text',
+      // Edit keeps the saved number unless the client type changes
+      dependsOn: ['clientType'],
       autoGenerate: (data, newRow) => {
         if (newRow.clientType === 'New Client') {
           let maxNum = 0;
@@ -114,6 +110,8 @@ export default function TableView() {
       key: 'clientCode',
       label: 'Client Code',
       type: 'text',
+      // Edit keeps the saved code unless the client year changes
+      dependsOn: ['clientYear'],
       autoGenerate: (data, newRow) => {
         if (!newRow.clientYear) return '';
 
@@ -138,6 +136,15 @@ export default function TableView() {
     { key: 'actions', label: 'Action', type: 'action' }
   ];
 
+  const summaryOfIncomeColumns = [
+    { key: 'index', label: 'Index', type: 'text' },
+    { key: 'year', label: 'Financial Year', type: 'select', options: names(L.years, 'label'), required: true },
+    { key: 'amount', label: 'Income', type: 'currency' },
+    { key: 'expenses', label: 'Expenses', type: 'currency' },
+    { key: 'netProfit', label: 'Net Profit', type: 'currency' },
+    { key: 'actions', label: 'Action', type: 'action' }
+  ];
+
   const inr = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
   const fmtDate = (v) => (v ? String(v).split('-').reverse().join('/') : '');
   const join = (...parts) => parts.filter(Boolean).join(' · ');
@@ -146,7 +153,7 @@ export default function TableView() {
   const mobileConfigs = {
     'service-status': {
       title: (r) => r.clientName,
-      subtitle: (r) => join(r.serviceType, fmtDate(r.dateOfService)),
+      subtitle: (r) => join(r.srNo && `#${r.srNo}`, r.serviceType, fmtDate(r.dateOfService)),
       right: (r) => {
         const bal = Number(r.fees || 0) - Number(r.received || 0);
         return { main: inr(r.fees), sub: bal > 0 ? `Due ${inr(bal)}` : 'Paid', tone: bal > 0 ? 'amber' : 'slate' };
@@ -165,6 +172,11 @@ export default function TableView() {
       title: (r) => r.expenseName,
       subtitle: (r) => join(fmtDate(r.date), r.modeOfPayment, r.notes),
       right: (r) => ({ main: inr(r.expenseAmount) }),
+    },
+    'summary-of-income': {
+      title: (r) => r.year || 'No financial year',
+      subtitle: (r) => join(`Income ${inr(r.amount)}`, `Expenses ${inr(r.expenses)}`),
+      right: (r) => ({ main: inr(r.netProfit), sub: 'Net profit', tone: Number(r.netProfit) < 0 ? 'amber' : 'slate' }),
     },
     'financial-years': {
       title: (r) => r.label,
@@ -197,6 +209,8 @@ export default function TableView() {
         { label: 'In progress', test: (r) => !r.jobCompleted },
         { label: 'Completed', test: (r) => r.jobCompleted },
       ],
+      // Only entries whose date of service falls inside the chosen financial year
+      selectFilter: { label: 'Financial year', allLabel: 'All financial years', options: fyFilterOptions(L.years, 'dateOfService') },
     },
     clients: {
       stats: (rows) => [
@@ -217,6 +231,14 @@ export default function TableView() {
         { label: 'Average', value: compactINR(rows.length ? sum(rows, (r) => r.expenseAmount) / rows.length : 0), tone: 'violet' },
       ],
     },
+    'summary-of-income': {
+      stats: (rows) => [
+        { label: 'Years', value: num(rows.length) },
+        { label: 'Income', value: compactINR(sum(rows, (r) => r.amount)), tone: 'violet' },
+        { label: 'Expenses', value: compactINR(sum(rows, (r) => r.expenses)), tone: 'rose' },
+        { label: 'Net profit', value: compactINR(sum(rows, (r) => r.netProfit)), tone: 'green' },
+      ],
+    },
   };
 
   const common = { showToolbar: true, initialData: state.rows, onSave, onDelete, mobile: mobileConfigs[tableName], ...insights[tableName] };
@@ -225,11 +247,13 @@ export default function TableView() {
   const renderTable = () => {
     switch (tableName) {
       case 'service-status':
-        return <AdvancedTable key={tableName} title="Service Status" columns={serviceStatusColumns} {...common} />;
+        return <AdvancedTable key={tableName} title="Service Status" columns={serviceStatusColumns} {...common} onImport={(rows) => insertRows(tableName, rows, L)} exportable />;
       case 'clients':
         return <AdvancedTable key={tableName} title="Clients" columns={clientColumns} {...common} />;
       case 'expense':
         return <AdvancedTable key={tableName} title="Expense" columns={expenseColumns} {...common} />;
+      case 'summary-of-income':
+        return <AdvancedTable key={tableName} title="Summary Of Income" columns={summaryOfIncomeColumns} {...common} exportable />;
       case 'financial-years':
         return <AdvancedTable key={tableName} title="Financial Years" columns={financialColumns} {...common} />;
       case 'service-types':
@@ -238,6 +262,8 @@ export default function TableView() {
         return <SubTable key={tableName} title="Mode Of Payment" itemLabel="Payment" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
       case 'tags':
         return <SubTable key={tableName} title="Tags" itemLabel="Tag Name" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
+      case 'categories':
+        return <SubTable key={tableName} title="Categories" itemLabel="Category Name" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
       default:
         return <Navigate to="/app/dashboard" replace />;
     }

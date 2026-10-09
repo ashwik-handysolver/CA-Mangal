@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useSession } from '../lib/auth';
 import AuthShell, { authInput } from '../components/AuthShell';
 
 export default function Login() {
@@ -8,6 +9,9 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const session = useSession();
+  // Page the user was sent here from (see Layout), else the dashboard
+  const target = useLocation().state?.from || '/app/dashboard';
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
@@ -23,12 +27,14 @@ export default function Login() {
 
     if (signInError) {
       setError(signInError.message);
-    } else if (data.user) {
-      localStorage.setItem('currentUser', JSON.stringify({ email: data.user.email }));
-      navigate('/app/dashboard');
+    } else if (data.session) {
+      navigate(target, { replace: true });
     }
     setLoading(false);
   };
+
+  // Already signed in
+  if (session) return <Navigate to={target} replace />;
 
   return (
     <AuthShell

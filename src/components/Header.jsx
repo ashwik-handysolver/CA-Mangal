@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { toggleTheme, isDark, currentEmail } from '../lib/theme';
+import { toggleTheme, isDark } from '../lib/theme';
 import Icon from './Icon';
 import { NAV_ITEMS } from './nav';
 
-export default function Header({ scrolled }) {
+export default function Header({ scrolled, email }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -13,12 +13,10 @@ export default function Header({ scrolled }) {
 
   const current = NAV_ITEMS.find((i) => i.path === location.pathname) || NAV_ITEMS[0];
   const isTable = location.pathname.startsWith('/app/tables/');
-  const email = currentEmail();
   const openAdd = () => window.dispatchEvent(new CustomEvent('open-add-modal'));
 
   const logout = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem('currentUser');
     navigate('/login');
   };
 

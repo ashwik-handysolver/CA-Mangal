@@ -1,5 +1,6 @@
--- Run once in Supabase Dashboard -> SQL Editor.
+-- Row Level Security for the app tables (safe to re-run).
 -- Lets signed-in users read/write the app tables (anonymous visitors still see nothing).
+-- Note: any signed-in account gets full access; there is no per-firm separation.
 do $$
 declare t text;
 begin

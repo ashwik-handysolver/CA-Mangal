@@ -4,6 +4,7 @@ import Signup from "./pages/Signup"
 import Layout from "./components/Layout"
 import DashboardHome from "./pages/DashboardHome"
 import TableView from "./pages/TableView"
+import ReportPage from "./pages/ReportPage"
 
 const App = () => {
   return (
@@ -18,6 +19,7 @@ const App = () => {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<DashboardHome />} />
           <Route path="tables/:tableName" element={<TableView />} />
+          <Route path="reports/:reportName" element={<ReportPage />} />
         </Route>
         
         {/* Legacy fallback */}

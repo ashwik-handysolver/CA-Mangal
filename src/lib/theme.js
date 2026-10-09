@@ -6,11 +6,3 @@ export function toggleTheme() {
   localStorage.theme = next ? 'dark' : 'light';
   return next;
 }
-
-export function currentEmail() {
-  try {
-    return JSON.parse(localStorage.getItem('currentUser') || '{}').email || '';
-  } catch {
-    return '';
-  }
-}

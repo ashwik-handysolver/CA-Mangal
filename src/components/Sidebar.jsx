@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { toggleTheme, isDark, currentEmail } from '../lib/theme';
+import { toggleTheme, isDark } from '../lib/theme';
 import Icon from './Icon';
 import Sheet from './Sheet';
-import { NAV_GROUPS, TAB_ITEMS, MASTER_ITEMS, FIRM } from './nav';
+import { NAV_GROUPS, TAB_ITEMS, MASTER_ITEMS, REPORT_ITEMS, FIRM } from './nav';
 
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
@@ -17,16 +17,14 @@ function TintIcon({ item }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({ email }) {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [dark, setDark] = useState(isDark);
-  const email = currentEmail();
 
   const logout = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem('currentUser');
     navigate('/login');
   };
 
@@ -34,6 +32,42 @@ export default function Sidebar() {
     `group press relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-[13.5px] font-medium transition-colors ${collapsed ? 'justify-center' : ''} ${
       isActive ? 'bg-gradient-to-r from-white/15 to-white/5 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
     }`;
+
+  const navLink = (item) => (
+    <NavLink key={item.path} to={item.path} className={linkClass} title={collapsed ? item.name : undefined}>
+      {({ isActive }) => (
+        <>
+          {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-saffron-500" />}
+          <span className={`w-8 h-8 rounded-lg grid place-items-center text-white shrink-0 shadow-sm transition-opacity ${item.tint} ${isActive ? 'opacity-100' : 'opacity-80 group-hover:opacity-100'}`}>
+            <Icon name={item.icon} className="w-[17px] h-[17px]" />
+          </span>
+          {!collapsed && <span>{item.name}</span>}
+        </>
+      )}
+    </NavLink>
+  );
+
+  // iOS settings-style list in the mobile "More" sheet
+  const sheetList = (label, items) => (
+    <div>
+      <div className="px-4 mb-1.5 text-[12px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="rounded-2xl bg-white dark:bg-darkbg overflow-hidden">
+        {items.map((item, i) => (
+          <button
+            key={item.path}
+            onClick={() => { setMoreOpen(false); navigate(item.path); }}
+            className="w-full flex items-center gap-3 pl-4 text-left active:bg-slate-100 dark:active:bg-white/5"
+          >
+            <TintIcon item={item} />
+            <span className={`flex-1 flex items-center justify-between py-3 pr-4 text-[16px] text-slate-900 dark:text-slate-100 ${i < items.length - 1 ? 'border-b border-slate-200 dark:border-darkborder' : ''}`}>
+              {item.name}
+              <Icon name="chevronLeft" className="w-4 h-4 rotate-180 text-slate-300" />
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -54,21 +88,7 @@ export default function Sidebar() {
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
               {!collapsed && <div className="px-3 mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-500">{group.label}</div>}
-              <div className="space-y-1">
-                {group.items.map((item) => (
-                  <NavLink key={item.path} to={item.path} className={linkClass} title={collapsed ? item.name : undefined}>
-                    {({ isActive }) => (
-                      <>
-                        {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-saffron-500" />}
-                        <span className={`w-8 h-8 rounded-lg grid place-items-center text-white shrink-0 shadow-sm transition-opacity ${item.tint} ${isActive ? 'opacity-100' : 'opacity-80 group-hover:opacity-100'}`}>
-                          <Icon name={item.icon} className="w-[17px] h-[17px]" />
-                        </span>
-                        {!collapsed && <span>{item.name}</span>}
-                      </>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
+              <div className="space-y-1">{[...group.items, ...(group.reports || [])].map(navLink)}</div>
             </div>
           ))}
         </nav>
@@ -118,24 +138,8 @@ export default function Sidebar() {
               </div>
             </div>
 
-            <div>
-              <div className="px-4 mb-1.5 text-[12px] uppercase tracking-wide text-slate-500">Masters</div>
-              <div className="rounded-2xl bg-white dark:bg-darkbg overflow-hidden">
-                {MASTER_ITEMS.map((item, i) => (
-                  <button
-                    key={item.path}
-                    onClick={() => { setMoreOpen(false); navigate(item.path); }}
-                    className="w-full flex items-center gap-3 pl-4 text-left active:bg-slate-100 dark:active:bg-white/5"
-                  >
-                    <TintIcon item={item} />
-                    <span className={`flex-1 flex items-center justify-between py-3 pr-4 text-[16px] text-slate-900 dark:text-slate-100 ${i < MASTER_ITEMS.length - 1 ? 'border-b border-slate-200 dark:border-darkborder' : ''}`}>
-                      {item.name}
-                      <Icon name="chevronLeft" className="w-4 h-4 rotate-180 text-slate-300" />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {REPORT_ITEMS.length > 0 && sheetList('Workspace', REPORT_ITEMS)}
+            {sheetList('Masters', MASTER_ITEMS)}
 
             <div className="rounded-2xl bg-white dark:bg-darkbg overflow-hidden">
               <button onClick={() => setDark(toggleTheme())} className="w-full flex items-center gap-3 pl-4 text-left active:bg-slate-100 dark:active:bg-white/5">

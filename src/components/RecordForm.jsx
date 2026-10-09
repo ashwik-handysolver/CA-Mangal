@@ -3,6 +3,7 @@ import CustomDropdown from './CustomDropdown';
 import Icon from './Icon';
 import { Grabber } from './Sheet';
 import { useSheetDrag, useLockBodyScroll } from '../lib/hooks';
+import { autoValue } from '../lib/autoValue';
 
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
@@ -14,7 +15,7 @@ const WIDE_KEYS = new Set(['name', 'address', 'notes', 'remarks', 'clientName', 
 // Add / edit container.
 // Mobile: iOS modal sheet (Cancel | Title | Save, drag down to dismiss).
 // Desktop: slide-over from the right.
-export function Drawer({ title, subtitle, onClose, onSubmit, saving, submitLabel, children, compact = false }) {
+export function Drawer({ title, subtitle, onClose, onSubmit, saving, submitLabel, children, compact = false, noValidate = false }) {
   const { handlers, style } = useSheetDrag(onClose);
   useLockBodyScroll(onClose);
 
@@ -23,6 +24,7 @@ export function Drawer({ title, subtitle, onClose, onSubmit, saving, submitLabel
       <div className="absolute inset-0 bg-black/45 animate-fade" onClick={onClose} />
       <form
         onSubmit={onSubmit}
+        noValidate={noValidate}
         style={style}
         className={`relative flex w-full flex-col bg-[#f2f2f7] md:bg-white dark:bg-darkcard shadow-2xl animate-sheet rounded-t-[28px] ${compact ? 'max-h-[93dvh] md:max-w-[520px] md:rounded-2xl md:animate-pop' : 'h-[93dvh] md:h-full md:max-w-[560px] md:rounded-none md:animate-drawer'}`}
       >
@@ -83,7 +85,8 @@ export function TextInput(props) {
 }
 
 // Form body for AdvancedTable rows, driven by the column definitions.
-export default function RecordForm({ columns, values, onChange, data }) {
+// `original` is the saved record when editing, null when adding.
+export default function RecordForm({ columns, values, onChange, data, original = null }) {
   const fields = columns.filter((c) => c.type !== 'action' && c.key !== 'index');
 
   return (
@@ -93,10 +96,24 @@ export default function RecordForm({ columns, values, onChange, data }) {
         const wide = col.type === 'textarea' || WIDE_KEYS.has(col.key);
         const common = { label: col.label, required: col.required, className: wide ? 'sm:col-span-2' : '' };
 
-        if (col.computed || col.autoGenerate) {
-          const auto = col.computed ? col.computed(values) : col.autoGenerate(data, values);
+        // Set by the database (e.g. SR No): shown, never edited
+        if (col.readOnly) {
           return (
-            <Field key={col.key} {...common} hint="Calculated automatically">
+            <Field key={col.key} {...common} hint={original ? 'Saved value' : 'Assigned automatically on save'}>
+              <div className="h-12 md:h-11 flex items-center rounded-xl md:rounded-lg border border-dashed border-slate-300 dark:border-darkborder bg-slate-50 dark:bg-darkbg/60 px-3.5 text-sm text-slate-500">
+                {value || '-'}
+              </div>
+            </Field>
+          );
+        }
+
+        if (col.computed || col.autoGenerate) {
+          const auto = col.computed ? col.computed(values) : autoValue(col, data, values, original);
+          const hint = col.computed
+            ? 'Calculated automatically'
+            : original && auto && auto === original[col.key] ? 'Saved value' : 'Assigned automatically on save';
+          return (
+            <Field key={col.key} {...common} hint={hint}>
               <div className="h-12 md:h-11 flex items-center rounded-xl md:rounded-lg border border-dashed border-slate-300 dark:border-darkborder bg-slate-50 dark:bg-darkbg/60 px-3.5 text-sm text-slate-500">
                 {col.type === 'currency' ? inr.format(auto || 0) : auto || '-'}
               </div>

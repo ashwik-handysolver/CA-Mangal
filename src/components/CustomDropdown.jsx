@@ -47,7 +47,8 @@ export default function CustomDropdown({ options = [], value, onChange, placehol
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') { e.preventDefault(); if (shown[0] !== undefined) pick(shown[0]); }
-          if (e.key === 'Escape') setOpen(false);
+          // Close only this list, not the form drawer around it
+          if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
         }}
         placeholder="Search"
         className="w-full h-10 rounded-xl bg-slate-100 dark:bg-darkbg pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none"

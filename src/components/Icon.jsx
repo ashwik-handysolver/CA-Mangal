@@ -20,6 +20,8 @@ const PATHS = {
   note: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.59a1 1 0 01.7.3l5.42 5.4a1 1 0 01.29.7V19a2 2 0 01-2 2z',
   menu: 'M4 6h16M4 12h16M4 18h16',
   trend: 'M3 17l6-6 4 4 8-8m0 0h-5m5 0v5',
+  download: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3',
+  upload: 'M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5-5 5M12 3v12',
 };
 
 export default function Icon({ name, className = 'w-5 h-5', strokeWidth = 1.8 }) {

@@ -46,8 +46,9 @@ export function useSheetDrag(onClose) {
     onTouchMove: (e) => setDy(Math.max(0, e.touches[0].clientY - startY.current)),
     onTouchEnd: () => {
       setDragging(false);
+      // Snap back either way: onClose may ask first (unsaved changes) and keep the sheet open
       if (dy > 110) onClose();
-      else setDy(0);
+      setDy(0);
     },
   };
   const style = { transform: dy ? `translateY(${dy}px)` : undefined, transition: dragging ? 'none' : 'transform 0.25s ease' };

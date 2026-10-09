@@ -32,11 +32,12 @@ const maxOrder = (rows) => ({ display_order: rows.reduce((m, r) => Math.max(m, r
 
 // lookups: which small tables a screen needs loaded alongside its own rows
 export const LOOKUPS = {
-  years: { table: 'mii_financial_years', select: 'id,label' },
+  years: { table: 'mii_financial_years', select: 'id,label,start_date,end_date' },
   modes: { table: 'mii_modes_of_payment', select: 'id,name' },
   services: { table: 'mii_service_types', select: 'id,name' },
   tags: { table: 'mii_tags', select: 'id,name' },
   clients: { table: 'mii_clients', select: 'id,name' },
+  categories: { table: 'mii_category', select: 'id,name' },
 };
 
 export const TABLES = {
@@ -77,7 +78,7 @@ export const TABLES = {
 
   expense: {
     table: 'mii_expenses',
-    needs: ['modes', 'services'],
+    needs: ['modes', 'categories'],
     fromDb: (r, L) => ({
       id: r.id,
       index: r.id,
@@ -86,7 +87,7 @@ export const TABLES = {
       expenseName: r.expense_name,
       expenseAmount: r.expense_amount,
       modeOfPayment: nameById(L.modes, 'name', r.mode_of_payment_id),
-      services: nameById(L.services, 'name', r.service_type_id),
+      services: nameById(L.categories, 'name', r.category_id), // "Services" picks from mii_category
       notes: r.notes || '',
     }),
     toDb: (r, L) => ({
@@ -95,17 +96,42 @@ export const TABLES = {
       expense_name: r.expenseName,
       expense_amount: num(r.expenseAmount) ?? 0,
       mode_of_payment_id: idByName(L.modes, 'name', r.modeOfPayment),
-      service_type_id: idByName(L.services, 'name', r.services),
+      category_id: idByName(L.categories, 'name', r.services),
       notes: blank(r.notes),
     }),
   },
 
-  'service-status': {
-    table: 'mii_service_status',
-    needs: ['clients', 'services', 'modes', 'tags'],
+  'summary-of-income': {
+    table: 'mii_summary_of_income',
+    needs: ['years'],
     fromDb: (r, L) => ({
       id: r.id,
       index: r.id,
+      year: nameById(L.years, 'label', r.year),
+      amount: r.amount,
+      expenses: r.expenses,
+      netProfit: r.net_profit,
+    }),
+    // Net profit left blank = amount - expenses
+    toDb: (r, L) => {
+      const amount = num(r.amount);
+      const expenses = num(r.expenses);
+      return {
+        year: idByName(L.years, 'label', r.year),
+        amount,
+        expenses,
+        net_profit: num(r.netProfit) ?? (amount == null && expenses == null ? null : (amount || 0) - (expenses || 0)),
+      };
+    },
+  },
+
+  'service-status': {
+    table: 'mii_service_status',
+    needs: ['clients', 'services', 'modes', 'tags', 'years'], // years: financial year filter
+    fromDb: (r, L) => ({
+      id: r.id,
+      index: r.id,
+      srNo: r.sr_no ?? '', // assigned by the database, never sent back
       clientId: r.client_id,
       clientName: nameById(L.clients, 'name', r.client_id),
       serviceType: nameById(L.services, 'name', r.service_type_id),
@@ -156,6 +182,11 @@ export const TABLES = {
     fromDb: nameRow,
     toDb: (r) => ({ name: r.name }),
   },
+  categories: {
+    table: 'mii_category',
+    fromDb: (r) => ({ ...nameRow(r), name: r.name ?? '' }),
+    toDb: (r) => ({ name: blank(r.name?.trim()) }),
+  },
 };
 
 export async function loadTable(key) {
@@ -179,6 +210,19 @@ export async function saveRow(key, row, isNew, L, existing) {
   const { data, error } = await q.select().single();
   if (error) throw error;
   return cfg.fromDb(data, L);
+}
+
+// Bulk insert (Excel import) in batches. On failure the error carries the rows
+// already saved as `error.saved`, since earlier batches stay in the database.
+export async function insertRows(key, rows, L) {
+  const cfg = TABLES[key];
+  const saved = [];
+  for (let i = 0; i < rows.length; i += 500) {
+    const { data, error } = await supabase.from(cfg.table).insert(rows.slice(i, i + 500).map((r) => cfg.toDb(r, L))).select();
+    if (error) throw Object.assign(new Error(error.message), { saved });
+    saved.push(...data.map((r) => cfg.fromDb(r, L)));
+  }
+  return saved;
 }
 
 export async function deleteRow(key, id) {

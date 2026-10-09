@@ -1,8 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import RecordForm, { Drawer } from './RecordForm';
+import { autoValue } from '../lib/autoValue';
 import ActionSheet from './ActionSheet';
+import ExportMenu from './ExportMenu';
+import ImportDialog from './ImportDialog';
+import CustomDropdown from './CustomDropdown';
 import Icon from './Icon';
 import { confirmAction, notify } from '../lib/notify';
+import { useIsMobile } from '../lib/hooks';
+import { readSheet, exportRows } from '../lib/excel';
 
 const ROWS_PER_PAGE = 25;
 const MOBILE_STEP = 30;
@@ -33,6 +39,8 @@ const VALUE_TONES = {
   violet: 'text-violet-600 dark:text-violet-300',
 };
 const PRIMARY_KEYS = new Set(['name', 'clientName', 'expenseName']);
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const norm = (v) => (v == null ? '' : String(v).trim());
 
 const AVATARS = ['bg-blue-500', 'bg-emerald-500', 'bg-violet-500', 'bg-rose-500', 'bg-amber-500', 'bg-cyan-600', 'bg-indigo-500', 'bg-pink-500'];
 const avatarColor = (s = '') => AVATARS[[...String(s)].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATARS.length];
@@ -41,25 +49,34 @@ function Pill({ tone = 'slate', children }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${TONES[tone]}`}>{children}</span>;
 }
 
-export default function AdvancedTable({ title, columns, initialData, onSave, onDelete, mobile, stats, filters }) {
+// onImport(list of new records) -> saved rows: shows the Import button. exportable: shows Export.
+// selectFilter: { label, allLabel, options: [{ value, detail, test(row) }] } adds a dropdown filter.
+export default function AdvancedTable({ title, columns, initialData, onSave, onDelete, onImport, exportable, mobile, stats, filters, selectFilter }) {
   const [data, setData] = useState(initialData || []);
-  const [newRow, setNewRow] = useState({});
   const [page, setPage] = useState(1);
   const [shown, setShown] = useState(MOBILE_STEP);
   const [query, setQuery] = useState('');
   const [filterIdx, setFilterIdx] = useState(0);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingRow, setEditingRow] = useState(null);
+  const [selectValue, setSelectValue] = useState(''); // '' = all
+  // Add / edit form: { original: saved row (null when adding), values: draft }
+  const [form, setForm] = useState(null);
   const [sheetRow, setSheetRow] = useState(null);
   const [saving, setSaving] = useState(false);
+  const confirmingClose = useRef(false);
+  const [sheet, setSheet] = useState(null); // parsed Excel file waiting to be imported
+  const [exporting, setExporting] = useState(false);
+  const fileRef = useRef(null);
+  const isMobile = useIsMobile();
 
   const singular = title.endsWith('us') ? title : title.replace(/s$/, '');
-  const formRow = editingRow || newRow;
-  const modalOpen = isAddOpen || !!editingRow;
+  const isEdit = !!form?.original;
+  const editable = columns.filter((c) => c.type !== 'action' && c.key !== 'index' && !c.computed && !c.autoGenerate && !c.readOnly);
+
+  const openEdit = (row) => setForm({ original: row, values: { ...row } });
 
   // "Add new" button in the header
   useEffect(() => {
-    const open = () => { setEditingRow(null); setNewRow({}); setIsAddOpen(true); };
+    const open = () => setForm({ original: null, values: {} });
     window.addEventListener('open-add-modal', open);
     return () => window.removeEventListener('open-add-modal', open);
   }, []);
@@ -67,12 +84,30 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const chip = filters?.[filterIdx];
+    const pick = selectFilter?.options.find((o) => o.value === selectValue);
     return data.filter((row) => {
       if (chip?.test && !chip.test(row)) return false;
+      if (pick && !pick.test(row)) return false;
       if (!q) return true;
       return Object.values(row).some((v) => typeof v !== 'object' && String(v ?? '').toLowerCase().includes(q));
     });
-  }, [data, query, filters, filterIdx]);
+  }, [data, query, filters, filterIdx, selectFilter, selectValue]);
+
+  // Dropdown filter (e.g. financial year), applied together with search and chips
+  const selectOption = selectFilter?.options.find((o) => o.value === selectValue);
+  const dropdown = selectFilter && (
+    <div className="w-full md:w-52 shrink-0">
+      <CustomDropdown
+        label={selectFilter.label}
+        placeholder={selectFilter.allLabel}
+        allowAll
+        value={selectValue}
+        options={selectFilter.options.map((o) => o.value)}
+        onChange={(v) => { setSelectValue(v); setPage(1); setShown(MOBILE_STEP); }}
+      />
+      {selectOption?.detail && <div className="mt-1 px-1 text-[11px] text-slate-400 md:hidden">{selectOption.detail}</div>}
+    </div>
+  );
 
   const summary = stats ? stats(filtered) : [];
   const chips = filters && (
@@ -105,40 +140,155 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
   const pageRows = filtered.slice(start, start + ROWS_PER_PAGE);
   const mobileRows = filtered.slice(0, shown);
 
-  const closeModal = () => { setIsAddOpen(false); setEditingRow(null); setNewRow({}); };
+  const setField = (key, value) => setForm((f) => ({ ...f, values: { ...f.values, [key]: value } }));
 
-  const setField = (key, value) => {
-    if (editingRow) setEditingRow({ ...editingRow, [key]: value });
-    else setNewRow({ ...newRow, [key]: value });
+  const isDirty = (f) => {
+    if (!f) return false;
+    if (!f.original) return editable.some((c) => f.values[c.key] !== false && norm(f.values[c.key]));
+    return editable.some((c) => norm(f.values[c.key]) !== norm(f.original[c.key]));
+  };
+
+  // Cancel / backdrop / Esc / drag-down: ask before throwing away edits
+  const requestClose = async () => {
+    if (saving || confirmingClose.current) return;
+    if (isDirty(form)) {
+      confirmingClose.current = true;
+      const ok = await confirmAction({
+        title: 'Discard changes?',
+        message: 'Your unsaved changes will be lost.',
+        confirmLabel: 'Discard',
+        destructive: true,
+      });
+      confirmingClose.current = false;
+      if (!ok) return;
+    }
+    setForm(null);
+  };
+
+  const validate = ({ original, values }) => {
+    for (const c of editable) {
+      const v = norm(values[c.key]);
+      if (c.required && !v) return `${c.label} is required`;
+      // Only check what was typed in this form, so old imported values never block a save
+      if (c.type === 'email' && v && (!original || v !== norm(original[c.key])) && !EMAIL_RE.test(v)) {
+        return `Enter a valid ${c.label.toLowerCase()}`;
+      }
+    }
+    return null;
   };
 
   const handleSave = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (saving) return;
+    e?.preventDefault?.();
+    if (saving || !form) return;
+    const { original, values } = form;
+
+    if (!original && !isDirty(form)) {
+      notify('Fill in at least one field', 'error');
+      return;
+    }
+    const error = validate(form);
+    if (error) {
+      notify(error, 'error');
+      return;
+    }
+
+    const row = { ...values };
+    columns.forEach((c) => { if (c.autoGenerate) row[c.key] = autoValue(c, data, values, original); });
+
+    // Nothing changed (including auto-generated fields): just close
+    if (original && !columns.some((c) => c.type !== 'action' && !c.computed && norm(row[c.key]) !== norm(original[c.key]))) {
+      setForm(null);
+      return;
+    }
+
     try {
       setSaving(true);
-      if (editingRow) {
-        const saved = onSave ? await onSave(editingRow, false, data) : editingRow;
-        setData(data.map((r) => (r.id === editingRow.id ? saved : r)));
-        notify('Changes saved', 'success');
-      } else {
-        if (!Object.values(newRow).some((v) => v && String(v).trim() !== '')) {
-          notify('Fill in at least one field', 'error');
-          return;
-        }
-        const added = { ...newRow };
-        columns.forEach((col) => { if (col.autoGenerate) added[col.key] = col.autoGenerate(data, newRow); });
-        const saved = onSave ? await onSave(added, true, data) : { ...added, id: Date.now() };
-        setData([saved, ...data]);
-        notify(`${singular} added`, 'success');
-      }
-      closeModal();
+      const saved = onSave ? await onSave(row, !original, data) : { ...row, id: original?.id ?? Date.now() };
+      setData((d) => (original ? d.map((r) => (r.id === original.id ? saved : r)) : [saved, ...d]));
+      notify(original ? 'Changes saved' : `${singular} added`, 'success');
+      setForm(null);
     } catch (err) {
       notify('Could not save: ' + (err.message || err), 'error');
     } finally {
       setSaving(false);
     }
   };
+
+  // ---------- Excel ----------
+
+  const pickFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file be picked again
+    if (!file) return;
+    try {
+      const parsed = await readSheet(file);
+      if (!parsed.rows.length) return notify('No data rows found under the header row', 'error');
+      setSheet({ ...parsed, fileName: file.name });
+    } catch (err) {
+      notify('Could not read the file: ' + (err.message || err), 'error');
+    }
+  };
+
+  const handleImport = async (records) => {
+    try {
+      const saved = await onImport(records);
+      setData((d) => [...[...saved].reverse(), ...d]);
+      notify(`${saved.length.toLocaleString('en-IN')} rows imported`, 'success');
+      setSheet(null);
+    } catch (err) {
+      // Rows are saved in batches; keep whatever made it in before the error
+      const saved = err.saved || [];
+      if (saved.length) setData((d) => [...[...saved].reverse(), ...d]);
+      notify(`Import stopped after ${saved.length} of ${records.length} rows: ${err.message || err}`, 'error');
+      if (saved.length) setSheet(null);
+    }
+  };
+
+  const doExport = async (rows, scope) => {
+    if (!rows.length) return notify('Nothing to export', 'error');
+    setExporting(true);
+    try {
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      await exportRows(columns, rows, `${slug}-${scope}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      notify('Could not export: ' + (err.message || err), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Import / Export buttons (icon-only on mobile)
+  const currentRows = isMobile ? mobileRows : pageRows;
+  const toolBtn = 'press shrink-0 inline-flex items-center justify-center gap-1.5 h-10 w-10 md:w-auto md:px-3.5 rounded-xl border border-slate-300 dark:border-darkborder bg-white dark:bg-darkbg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-50';
+  const transfer = (onImport || exportable) && (
+    <div className="flex items-center gap-2 shrink-0">
+      {onImport && (
+        <>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={pickFile} />
+          <button type="button" onClick={() => fileRef.current?.click()} className={toolBtn} title="Import from Excel">
+            <Icon name="upload" className="w-4 h-4" />
+            <span className="hidden md:inline">Import</span>
+          </button>
+        </>
+      )}
+      {exportable && (
+        <ExportMenu
+          busy={exporting}
+          className={toolBtn}
+          options={[
+            { label: 'All data', detail: `${data.length.toLocaleString('en-IN')} records`, onClick: () => doExport(data, 'all') },
+            {
+              label: isMobile ? 'Current view' : 'Current page',
+              detail: isMobile
+                ? `${currentRows.length.toLocaleString('en-IN')} records shown`
+                : `Page ${safePage} · ${currentRows.length.toLocaleString('en-IN')} records`,
+              onClick: () => doExport(currentRows, isMobile ? 'view' : `page-${safePage}`),
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
 
   const handleDelete = async (row) => {
     const ok = await confirmAction({
@@ -163,7 +313,7 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
       case 'action':
         return (
           <div className="flex items-center justify-end gap-1">
-            <button onClick={() => setEditingRow(row)} className="press p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/20" title="Edit">
+            <button onClick={() => openEdit(row)} className="press p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/20" title="Edit">
               <Icon name="edit" className="w-4 h-4" />
             </button>
             <button onClick={() => handleDelete(row)} className="press p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/15" title="Delete">
@@ -209,16 +359,20 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
       {/* ---------- Mobile: iOS search + inset grouped list ---------- */}
       <div className="md:hidden">
         <div className="sticky top-0 z-10 -mx-4 px-4 pb-2 pt-1 bg-canvas/90 dark:bg-darkbg/90 backdrop-blur">
-          <div className="relative">
-            <Icon name="search" className="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setShown(MOBILE_STEP); }}
-              placeholder={`Search ${title.toLowerCase()}`}
-              className="w-full h-10 rounded-xl bg-slate-200/70 dark:bg-white/10 pl-10 pr-3 text-slate-900 dark:text-slate-100 placeholder-slate-500 outline-none"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Icon name="search" className="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setShown(MOBILE_STEP); }}
+                placeholder={`Search ${title.toLowerCase()}`}
+                className="w-full h-10 rounded-xl bg-slate-200/70 dark:bg-white/10 pl-10 pr-3 text-slate-900 dark:text-slate-100 placeholder-slate-500 outline-none"
+              />
+            </div>
+            {isMobile && transfer}
           </div>
+          {dropdown && <div className="mt-2">{dropdown}</div>}
           {chips && <div className="mt-2">{chips}</div>}
           <div className="mt-2 px-1 text-[12px] uppercase tracking-wide text-slate-500">{filtered.length.toLocaleString('en-IN')} {filtered.length === 1 ? 'record' : 'records'}</div>
         </div>
@@ -290,11 +444,13 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
               className="w-full h-10 rounded-xl border border-slate-300 dark:border-darkborder bg-white dark:bg-darkbg pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-600"
             />
           </div>
+          {!isMobile && dropdown && <div title={selectOption?.detail}>{dropdown}</div>}
           {chips && <div className="flex-1 min-w-0">{chips}</div>}
           <div className="text-sm text-slate-500 dark:text-slate-400 shrink-0">
             <span className="font-semibold text-slate-800 dark:text-slate-100">{filtered.length.toLocaleString('en-IN')}</span> {filtered.length === 1 ? 'record' : 'records'}
-            {query && data.length !== filtered.length && <> of {data.length.toLocaleString('en-IN')}</>}
+            {data.length !== filtered.length && <> of {data.length.toLocaleString('en-IN')}</>}
           </div>
+          {!isMobile && transfer}
         </div>
 
         <div className="overflow-auto max-h-[calc(100vh-300px)]">
@@ -346,24 +502,29 @@ export default function AdvancedTable({ title, columns, initialData, onSave, onD
           message={mobile?.subtitle ? mobile.subtitle(sheetRow) : undefined}
           onClose={() => setSheetRow(null)}
           actions={[
-            { label: 'Edit', onClick: () => setEditingRow(sheetRow) },
+            { label: 'Edit', onClick: () => openEdit(sheetRow) },
             { label: 'Delete', destructive: true, onClick: () => handleDelete(sheetRow) },
           ]}
         />
       )}
 
-      {modalOpen && (
+      {form && (
         <Drawer
           compact={columns.filter((c) => c.type !== 'action' && c.key !== 'index').length <= 4}
-          title={`${editingRow ? 'Edit' : 'New'} ${singular.toLowerCase()}`}
-          subtitle={editingRow ? 'Update the details below and save.' : 'Fill in the details below to add a record.'}
-          onClose={closeModal}
+          title={`${isEdit ? 'Edit' : 'New'} ${singular.toLowerCase()}`}
+          subtitle={isEdit ? 'Update the details below and save.' : 'Fill in the details below to add a record.'}
+          onClose={requestClose}
           onSubmit={handleSave}
           saving={saving}
-          submitLabel={editingRow ? 'Save changes' : `Add ${singular.toLowerCase()}`}
+          submitLabel={isEdit ? 'Save changes' : `Add ${singular.toLowerCase()}`}
+          noValidate
         >
-          <RecordForm columns={columns} values={formRow} onChange={setField} data={data} />
+          <RecordForm columns={columns} values={form.values} onChange={setField} data={data} original={form.original} />
         </Drawer>
+      )}
+
+      {sheet && (
+        <ImportDialog title={title} columns={columns} sheet={sheet} onClose={() => setSheet(null)} onImport={handleImport} />
       )}
     </div>
   );
