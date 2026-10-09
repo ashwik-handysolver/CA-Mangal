@@ -1,223 +1,185 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import Icon from './Icon';
+import ActionSheet from './ActionSheet';
+import { Drawer, Field, TextInput } from './RecordForm';
+import { confirmAction, notify } from '../lib/notify';
 
-export default function SubTable({ title, itemLabel, initialData }) {
+const ROWS_PER_PAGE = 25;
 
-
+export default function SubTable({ title, itemLabel, initialData, onSave, onDelete }) {
   const [items, setItems] = useState(initialData || []);
-  const [newItem, setNewItem] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const rowsPerPage = 25;
+  const [name, setName] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [sheetItem, setSheetItem] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  // Listen to header Add Row button
+  const singular = title.endsWith('us') ? title : title.replace(/s$/, '');
+  const modalOpen = isAddOpen || !!editing;
+
   useEffect(() => {
-    const handleOpenAdd = () => {
-      setEditingItem(null);
-      setNewItem('');
-      setIsAddModalOpen(true);
-    };
-
-    window.addEventListener('open-add-modal', handleOpenAdd);
-    return () => window.removeEventListener('open-add-modal', handleOpenAdd);
+    const open = () => { setEditing(null); setName(''); setIsAddOpen(true); };
+    window.addEventListener('open-add-modal', open);
+    return () => window.removeEventListener('open-add-modal', open);
   }, []);
 
-  const handleSaveItem = (e) => {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? items.filter((i) => String(i.name).toLowerCase().includes(q)) : items;
+  }, [items, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * ROWS_PER_PAGE;
+  const pageItems = filtered.slice(start, start + ROWS_PER_PAGE);
+
+  const closeModal = () => { setIsAddOpen(false); setEditing(null); setName(''); };
+  const openEdit = (item) => { setEditing(item); setName(item.name); };
+
+  const handleSave = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!newItem.trim()) return;
-
-    if (editingItem) {
-      setItems(items.map(item => item.index === editingItem.index ? { ...item, name: newItem } : item));
-      setEditingItem(null);
-    } else {
-      const maxIndex = items.length > 0 ? Math.max(...items.map(s => s.index)) : 0;
-      const newEntry = { index: maxIndex + 1, name: newItem };
-      setItems([newEntry, ...items].sort((a, b) => b.index - a.index));
+    const value = name.trim();
+    if (!value) { notify(`Enter a ${itemLabel.toLowerCase()}`, 'error'); return; }
+    if (saving) return;
+    try {
+      setSaving(true);
+      if (editing) {
+        const saved = onSave ? await onSave({ ...editing, name: value }, false, items) : { ...editing, name: value };
+        setItems(items.map((i) => (i.id === editing.id ? saved : i)));
+        notify('Changes saved', 'success');
+      } else {
+        const saved = onSave ? await onSave({ name: value }, true, items) : { id: Date.now(), index: Date.now(), name: value };
+        setItems([saved, ...items]);
+        notify(`${singular} added`, 'success');
+      }
+      closeModal();
+    } catch (err) {
+      notify('Could not save: ' + (err.message || err), 'error');
+    } finally {
+      setSaving(false);
     }
-    setNewItem('');
-    setIsAddModalOpen(false);
   };
 
-  const openEditModal = (item) => {
-    setEditingItem(item);
-    setNewItem(item.name);
-  };
-
-  const closeModals = () => {
-    setIsAddModalOpen(false);
-    setEditingItem(null);
-    setNewItem('');
-  };
-
-  const handleDelete = (indexToDelete) => {
-    setItems(items.filter(item => item.index !== indexToDelete));
-  };
-  const filteredItems = items;
-
-  const totalPages = Math.ceil(filteredItems.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const paginatedItems = filteredItems.slice(startIndex, startIndex + rowsPerPage);
-
-  const renderPageNumbers = () => {
-    const pages = [];
-    const maxVisible = 5;
-    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let end = Math.min(totalPages, start + maxVisible - 1);
-    if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
-    
-    for (let i = start; i <= end; i++) {
-      pages.push(
-        <button
-          key={i}
-          onClick={() => setCurrentPage(i)}
-          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium ${currentPage === i ? 'bg-slate-700 dark:bg-blue-600 text-white shadow-sm border-transparent' : 'bg-white dark:bg-darkcard border border-slate-300 dark:border-darkborder text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-darkborder'}`}
-        >
-          {i}
-        </button>
-      );
+  const handleDelete = async (item) => {
+    const ok = await confirmAction({ title: `Delete "${item.name}"?`, message: 'This cannot be undone.', confirmLabel: 'Delete', destructive: true });
+    if (!ok) return;
+    try {
+      if (onDelete) await onDelete({ id: item.id });
+      setItems((list) => list.filter((i) => i.id !== item.id));
+      notify(`${singular} deleted`, 'success');
+    } catch (err) {
+      notify('Could not delete: ' + (err.message || err), 'error');
     }
-    return pages;
   };
 
   return (
-    <div className="flex flex-col">
-      
-
-      <div className="bg-white dark:bg-darkcard rounded-xl shadow-sm border border-slate-200 dark:border-darkborder overflow-hidden flex flex-col">
-        <div className="overflow-auto max-h-[calc(100vh-160px)] md:max-h-[calc(100vh-220px)] custom-scrollbar" data-lenis-prevent>
-          <table className="hidden md:table w-full text-left border-collapse">
-            <thead className="sticky top-0 z-30 shadow-sm bg-white/95 dark:bg-darkcard/95 backdrop-blur-sm">
-              <tr className="text-slate-500">
-                <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold border-b border-slate-200 dark:border-darkborder/50 bg-white/95 dark:bg-darkcard/95 text-center w-24">Index</th>
-                <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold border-b border-slate-200 dark:border-darkborder/50 bg-white/95 dark:bg-darkcard/95 text-center">{itemLabel}</th>
-                <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold border-b border-slate-200 dark:border-darkborder/50 bg-white/95 dark:bg-darkcard/95 text-center w-32">Action</th>
-              </tr>
-            </thead>
-            
-            <tbody>
-              {paginatedItems.map((item) => (
-                <tr key={item.index} className="bg-white dark:bg-darkcard border-b border-slate-100 dark:border-darkborder/40 hover:bg-slate-50/50 dark:hover:bg-darkbg/50 group">
-                  <td className="px-6 py-4 text-[13px] text-slate-700 dark:text-slate-300 text-center font-semibold">
-                    {item.index}
-                  </td>
-                  <td className="px-6 py-4 text-[13px] text-slate-700 dark:text-slate-300 text-center">
-                    {item.name}
-                  </td>
-                  <td className="px-6 py-4 text-[13px] text-slate-700 dark:text-slate-300 text-center">
-                    <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600 bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 p-1.5 rounded transition-colors" title="Edit">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button>
-                      <button onClick={() => handleDelete(item.index)} className="text-slate-400 hover:text-red-600 bg-slate-100 dark:bg-slate-800 hover:bg-red-100 dark:hover:bg-red-900/40 p-1.5 rounded transition-colors" title="Delete">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm2.46-7.12l1.41-1.41L12 12.59l2.12-2.12 1.41 1.41L13.41 14l2.12 2.12-1.41 1.41L12 15.41l-2.12 2.12-1.41-1.41L10.59 14l-2.13-2.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {paginatedItems.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
-                    No items found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-
-          {/* Mobile Cards View */}
-          <div className="md:hidden flex flex-col gap-4 p-4">
-            {paginatedItems.map((item) => (
-              <div key={item.index} className="bg-white dark:bg-darkcard rounded-2xl border border-slate-200 dark:border-darkborder shadow-sm p-5 flex flex-col gap-4 relative overflow-hidden">
-                <div className="absolute top-4 right-4 z-10 flex items-center justify-end gap-3 transition-opacity">
-                  <button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600 bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 p-2 rounded-lg transition-colors" title="Edit">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                  </button>
-                  <button onClick={() => handleDelete(item.index)} className="text-slate-400 hover:text-red-600 bg-slate-100 dark:bg-slate-800 hover:bg-red-100 dark:hover:bg-red-900/40 p-2 rounded-lg transition-colors" title="Delete">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm2.46-7.12l1.41-1.41L12 12.59l2.12-2.12 1.41 1.41L13.41 14l2.12 2.12-1.41 1.41L12 15.41l-2.12 2.12-1.41-1.41L10.59 14l-2.13-2.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                  </button>
-                </div>
-                
-                <div className="flex flex-col gap-3">
-                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-darkborder/50 pb-2 pr-24">
-                    <span className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">Index</span>
-                    <div className="text-right text-sm text-slate-800 dark:text-slate-200 font-medium">
-                      {item.index}
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center pb-2">
-                    <span className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">{itemLabel}</span>
-                    <div className="text-right text-sm text-slate-800 dark:text-slate-200 font-medium max-w-[70%]">
-                      {item.name}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {paginatedItems.length === 0 && (
-              <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-                No items found.
-              </div>
-            )}
+    <div className="max-w-4xl">
+      {/* Mobile */}
+      <div className="md:hidden">
+        <div className="sticky top-0 z-10 -mx-4 px-4 pb-2 pt-1 bg-canvas/90 dark:bg-darkbg/90 backdrop-blur">
+          <div className="relative">
+            <Icon name="search" className="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="search" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder={`Search ${title.toLowerCase()}`} className="w-full h-10 rounded-xl bg-slate-200/70 dark:bg-white/10 pl-10 pr-3 text-slate-900 dark:text-slate-100 placeholder-slate-500 outline-none" />
           </div>
-
+          <div className="mt-2 px-1 text-[12px] uppercase tracking-wide text-slate-500">{filtered.length} {filtered.length === 1 ? 'item' : 'items'}</div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Showing <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + rowsPerPage, filteredItems.length)}</span> out of <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredItems.length}</span>
-            </span>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1 text-center">
-                {renderPageNumbers()}
-              </div>
-            )}
+        {filtered.length > 0 ? (
+          <div className="rounded-2xl bg-white dark:bg-darkcard overflow-hidden shadow-sm">
+            {filtered.slice(0, page * 40).map((item, i, arr) => (
+              <button key={item.id} onClick={() => setSheetItem(item)} className="w-full flex items-center pl-4 text-left active:bg-slate-100 dark:active:bg-white/5">
+                <span className={`flex-1 flex items-center justify-between gap-3 py-3.5 pr-4 ${i < arr.length - 1 ? 'border-b border-slate-100 dark:border-darkborder' : ''}`}>
+                  <span className="text-[16px] text-slate-900 dark:text-white truncate">{item.name}</span>
+                  <Icon name="chevronLeft" className="w-4 h-4 rotate-180 text-slate-300 shrink-0" />
+                </span>
+              </button>
+            ))}
           </div>
+        ) : (
+          <div className="rounded-2xl bg-white dark:bg-darkcard py-14 text-center text-[15px] text-slate-500">{query ? 'No matching items' : 'Nothing here yet. Tap + to add one.'}</div>
+        )}
+        {filtered.length > page * 40 && (
+          <button onClick={() => setPage(page + 1)} className="press mt-4 w-full rounded-xl bg-white dark:bg-darkcard py-3.5 text-[16px] font-medium text-brand-600">Show more</button>
+        )}
       </div>
 
-      {/* Add Modal */}
-      {(isAddModalOpen || editingItem) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className={`bg-white dark:bg-darkcard w-full max-w-md rounded-xl shadow-2xl border border-slate-200 dark:border-darkborder flex flex-col overflow-hidden ${editingItem ? 'animate-[slideFromRight_0.3s_ease-out]' : 'animate-[slideFromBottom_0.3s_ease-out]'}`}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">{editingItem ? 'Edit ' : 'Add New '}{(title.endsWith('us') ? title : title.replace(/s$/, ''))}</h3>
-              <button onClick={closeModals} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">{itemLabel} <span className="text-red-400">*</span></label>
-                <div className="flex items-center gap-2 bg-white dark:bg-darkbg border border-slate-300 dark:border-darkborder rounded-lg px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50">
-                  <input 
-                    type="text" 
-                    placeholder={`Enter ${itemLabel}`}
-                    value={newItem}
-                    onChange={(e) => setNewItem(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveItem(e); }}
-                    className="w-full min-w-0 text-sm bg-transparent border-none focus:ring-0 p-0 text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 outline-none"
-                    autoFocus
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-              <button onClick={closeModals} className="px-5 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
-              <button onClick={handleSaveItem} className="px-5 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors">Save {(title.endsWith('us') ? title : title.replace(/s$/, ''))}</button>
-            </div>
+      {/* Desktop */}
+      <div className="hidden md:block bg-white dark:bg-darkcard rounded-2xl border border-slate-200 dark:border-darkborder shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between gap-3 p-4 border-b border-slate-200 dark:border-darkborder">
+          <div className="relative w-full max-w-sm">
+            <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder={`Search ${title.toLowerCase()}...`} className="w-full h-10 rounded-xl border border-slate-300 dark:border-darkborder bg-white dark:bg-darkbg pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-600" />
+          </div>
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{filtered.length}</span> {filtered.length === 1 ? 'item' : 'items'}
           </div>
         </div>
+
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-slate-50 dark:bg-darkbg">
+            <tr>
+              <th className="px-4 py-3 w-24 text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-darkborder">Index</th>
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-darkborder">{itemLabel}</th>
+              <th className="px-4 py-3 w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-darkborder">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageItems.map((item, i) => (
+              <tr key={item.id} className="animate-rise border-b border-slate-100 dark:border-darkborder/60 hover:bg-brand-50/40 dark:hover:bg-white/[0.03] transition-colors" style={{ animationDelay: `${Math.min(i, 14) * 22}ms` }}>
+                <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{item.index}</td>
+                <td className="px-4 py-3 text-[13px] font-medium text-slate-800 dark:text-slate-100">{item.name}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => openEdit(item)} className="press p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/20" title="Edit"><Icon name="edit" className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(item)} className="press p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/15" title="Delete"><Icon name="trash" className="w-4 h-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {pageItems.length === 0 && (
+              <tr><td colSpan={3} className="px-6 py-14 text-center text-sm text-slate-500">{query ? 'No matching items' : 'Nothing here yet. Use "Add new" to create one.'}</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        <div className="flex items-center justify-between gap-4 px-4 py-3 border-t border-slate-200 dark:border-darkborder bg-slate-50/60 dark:bg-darkbg/40 text-sm">
+          <span className="text-slate-500">{filtered.length ? `${start + 1}-${Math.min(start + ROWS_PER_PAGE, filtered.length)}` : '0'} of {filtered.length}</span>
+          <div className="flex items-center gap-2">
+            <button disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} className="press px-3 py-1.5 rounded-lg border border-slate-300 dark:border-darkborder text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:bg-white dark:hover:bg-white/5">Previous</button>
+            <span className="text-slate-500 tabular-nums">{safePage} / {totalPages}</span>
+            <button disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)} className="press px-3 py-1.5 rounded-lg border border-slate-300 dark:border-darkborder text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:bg-white dark:hover:bg-white/5">Next</button>
+          </div>
+        </div>
+      </div>
+
+      {sheetItem && (
+        <ActionSheet
+          title={sheetItem.name}
+          onClose={() => setSheetItem(null)}
+          actions={[
+            { label: 'Rename', onClick: () => openEdit(sheetItem) },
+            { label: 'Delete', destructive: true, onClick: () => handleDelete(sheetItem) },
+          ]}
+        />
+      )}
+
+      {modalOpen && (
+        <Drawer
+          compact
+          title={`${editing ? 'Edit' : 'New'} ${singular.toLowerCase()}`}
+          subtitle={editing ? 'Rename this entry.' : 'Give the new entry a name.'}
+          onClose={closeModal}
+          onSubmit={handleSave}
+          saving={saving}
+          submitLabel={editing ? 'Save changes' : `Add ${singular.toLowerCase()}`}
+        >
+          <Field label={itemLabel} required>
+            <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={`Enter ${itemLabel.toLowerCase()}`} />
+          </Field>
+        </Drawer>
       )}
     </div>
   );
 }
-
-
-
-
-
-
-
-

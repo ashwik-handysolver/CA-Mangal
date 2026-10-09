@@ -1,354 +1,370 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import CustomDropdown from './CustomDropdown';
+import { useState, useEffect, useMemo } from 'react';
+import RecordForm, { Drawer } from './RecordForm';
+import ActionSheet from './ActionSheet';
+import Icon from './Icon';
+import { confirmAction, notify } from '../lib/notify';
 
-export default function AdvancedTable({ title, columns, initialData, showToolbar }) {
+const ROWS_PER_PAGE = 25;
+const MOBILE_STEP = 30;
+const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+const fmtDate = (v) => (v ? String(v).split('-').reverse().join('/') : '');
 
+const TONES = {
+  green: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  amber: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  slate: 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300',
+  brand: 'bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100',
+  red: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  violet: 'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+};
 
+const CARD_TONES = {
+  brand: 'from-brand-50 to-white border-brand-100 dark:from-brand-600/15 dark:to-darkcard dark:border-brand-600/25',
+  green: 'from-emerald-50 to-white border-emerald-100 dark:from-emerald-500/10 dark:to-darkcard dark:border-emerald-500/20',
+  amber: 'from-saffron-50 to-white border-orange-100 dark:from-saffron-500/10 dark:to-darkcard dark:border-saffron-500/20',
+  rose: 'from-rose-50 to-white border-rose-100 dark:from-rose-500/10 dark:to-darkcard dark:border-rose-500/20',
+  violet: 'from-violet-50 to-white border-violet-100 dark:from-violet-500/10 dark:to-darkcard dark:border-violet-500/20',
+};
+const VALUE_TONES = {
+  brand: 'text-brand-700 dark:text-brand-100',
+  green: 'text-emerald-600 dark:text-emerald-400',
+  amber: 'text-saffron-600 dark:text-saffron-500',
+  rose: 'text-rose-600 dark:text-rose-400',
+  violet: 'text-violet-600 dark:text-violet-300',
+};
+const PRIMARY_KEYS = new Set(['name', 'clientName', 'expenseName']);
+
+const AVATARS = ['bg-blue-500', 'bg-emerald-500', 'bg-violet-500', 'bg-rose-500', 'bg-amber-500', 'bg-cyan-600', 'bg-indigo-500', 'bg-pink-500'];
+const avatarColor = (s = '') => AVATARS[[...String(s)].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATARS.length];
+
+function Pill({ tone = 'slate', children }) {
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${TONES[tone]}`}>{children}</span>;
+}
+
+export default function AdvancedTable({ title, columns, initialData, onSave, onDelete, mobile, stats, filters }) {
   const [data, setData] = useState(initialData || []);
   const [newRow, setNewRow] = useState({});
-  const [currentPage, setCurrentPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [shown, setShown] = useState(MOBILE_STEP);
+  const [query, setQuery] = useState('');
+  const [filterIdx, setFilterIdx] = useState(0);
+  const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
-  const rowsPerPage = 25;
+  const [sheetRow, setSheetRow] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  // Listen to header Add Row button
+  const singular = title.endsWith('us') ? title : title.replace(/s$/, '');
+  const formRow = editingRow || newRow;
+  const modalOpen = isAddOpen || !!editingRow;
+
+  // "Add new" button in the header
   useEffect(() => {
-    const handleOpenAdd = () => {
-      setEditingRow(null);
-      setNewRow({});
-      setIsAddModalOpen(true);
-    };
-
-    window.addEventListener('open-add-modal', handleOpenAdd);
-    
-
-  return () => window.removeEventListener('open-add-modal', handleOpenAdd);
+    const open = () => { setEditingRow(null); setNewRow({}); setIsAddOpen(true); };
+    window.addEventListener('open-add-modal', open);
+    return () => window.removeEventListener('open-add-modal', open);
   }, []);
 
-  const handleModalChange = (key, value) => {
-    if (editingRow) {
-      setEditingRow({ ...editingRow, [key]: value });
-    } else {
-      setNewRow({ ...newRow, [key]: value });
-    }
-  };
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const chip = filters?.[filterIdx];
+    return data.filter((row) => {
+      if (chip?.test && !chip.test(row)) return false;
+      if (!q) return true;
+      return Object.values(row).some((v) => typeof v !== 'object' && String(v ?? '').toLowerCase().includes(q));
+    });
+  }, [data, query, filters, filterIdx]);
 
-  const handleSaveRow = (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    
-    if (editingRow) {
-      setData(data.map(row => row.id === editingRow.id ? editingRow : row));
-      setEditingRow(null);
-    } else {
-      const hasAnyValue = Object.values((editingRow || newRow)).some(val => val && String(val).trim() !== '');
-      if (!hasAnyValue) return;
-  
-      const maxIndex = data.length > 0 ? Math.max(...data.map(d => parseInt(d.index) || 0)) : 0;
-      const added = { ...newRow, index: maxIndex + 1, id: Date.now() };
-  
-      columns.forEach(col => {
-        if (col.autoGenerate) {
-          added[col.key] = col.autoGenerate(data, (editingRow || newRow));
-        }
-      });
-  
-      setData([added, ...data]);
-      setNewRow({});
-      setIsAddModalOpen(false);
-    }
-  };
-
-  const handleDelete = (id) => {
-    setData(data.filter(row => row.id !== id));
-  };
-  const filteredData = data;
-
-  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const paginatedData = filteredData.slice(startIndex, startIndex + rowsPerPage);
-
-  const renderPageNumbers = () => {
-    const pages = [];
-    const maxVisible = 5;
-    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let end = Math.min(totalPages, start + maxVisible - 1);
-
-    if (end - start + 1 < maxVisible) {
-      start = Math.max(1, end - maxVisible + 1);
-    }
-    for (let i = start; i <= end; i++) {
-      pages.push(
+  const summary = stats ? stats(filtered) : [];
+  const chips = filters && (
+    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+      {filters.map((f, i) => (
         <button
-          key={i}
-          onClick={() => setCurrentPage(i)}
-          className={`w-7 h-7 flex items-center justify-center rounded text-xs font-medium ${currentPage === i ? 'bg-slate-700 dark:bg-blue-600 text-white shadow-sm border-transparent' : 'bg-white dark:bg-darkcard border border-slate-300 dark:border-darkborder text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-darkborder'}`}
+          key={f.label}
+          onClick={() => { setFilterIdx(i); setPage(1); setShown(MOBILE_STEP); }}
+          className={`press shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${i === filterIdx ? 'bg-brand-600 text-white shadow-sm' : 'bg-white dark:bg-white/10 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-transparent hover:bg-slate-50'}`}
         >
-          {i}
+          {f.label}
         </button>
-      );
-    }
-    return pages;
+      ))}
+    </div>
+  );
+  const strip = summary.length > 0 && (
+    <div className="flex md:grid gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 md:grid-cols-[repeat(auto-fit,minmax(180px,1fr))] snap-x">
+      {summary.map((s, i) => (
+        <div key={s.label} className={`animate-rise snap-start shrink-0 min-w-[150px] md:min-w-0 rounded-2xl bg-gradient-to-br border px-4 py-3.5 shadow-sm ${CARD_TONES[s.tone || 'brand']}`} style={{ animationDelay: `${i * 50}ms` }}>
+          <div className="text-[12px] font-medium text-slate-500 dark:text-slate-400">{s.label}</div>
+          <div className={`mt-1 text-[22px] font-bold tabular-nums tracking-tight ${VALUE_TONES[s.tone || 'brand']}`}>{s.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * ROWS_PER_PAGE;
+  const pageRows = filtered.slice(start, start + ROWS_PER_PAGE);
+  const mobileRows = filtered.slice(0, shown);
+
+  const closeModal = () => { setIsAddOpen(false); setEditingRow(null); setNewRow({}); };
+
+  const setField = (key, value) => {
+    if (editingRow) setEditingRow({ ...editingRow, [key]: value });
+    else setNewRow({ ...newRow, [key]: value });
   };
 
-  const renderCellContent = (col, row, cellValue) => {
-    if (col.type === 'action') {
-      return (
-        <div className="flex items-center justify-end gap-3 transition-opacity">
-          <button onClick={() => setEditingRow(row)} className="text-slate-400 hover:text-blue-600 bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 p-2 rounded-lg transition-colors" title="Edit">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-          </button>
-          <button onClick={() => handleDelete(row.id)} className="text-slate-400 hover:text-red-600 bg-slate-100 dark:bg-slate-800 hover:bg-red-100 dark:hover:bg-red-900/40 p-2 rounded-lg transition-colors" title="Delete">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm2.46-7.12l1.41-1.41L12 12.59l2.12-2.12 1.41 1.41L13.41 14l2.12 2.12-1.41 1.41L12 15.41l-2.12 2.12-1.41-1.41L10.59 14l-2.13-2.12zM15.5 4l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-          </button>
-        </div>
-      );
+  const handleSave = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (saving) return;
+    try {
+      setSaving(true);
+      if (editingRow) {
+        const saved = onSave ? await onSave(editingRow, false, data) : editingRow;
+        setData(data.map((r) => (r.id === editingRow.id ? saved : r)));
+        notify('Changes saved', 'success');
+      } else {
+        if (!Object.values(newRow).some((v) => v && String(v).trim() !== '')) {
+          notify('Fill in at least one field', 'error');
+          return;
+        }
+        const added = { ...newRow };
+        columns.forEach((col) => { if (col.autoGenerate) added[col.key] = col.autoGenerate(data, newRow); });
+        const saved = onSave ? await onSave(added, true, data) : { ...added, id: Date.now() };
+        setData([saved, ...data]);
+        notify(`${singular} added`, 'success');
+      }
+      closeModal();
+    } catch (err) {
+      notify('Could not save: ' + (err.message || err), 'error');
+    } finally {
+      setSaving(false);
     }
-    if (col.type === 'date') return <span className="font-medium">{cellValue}</span>;
-    if (col.type === 'toggle') return (
-      <button type="button" className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent focus:outline-none ${cellValue ? 'bg-orange-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
-        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${cellValue ? 'translate-x-4' : 'translate-x-0'}`} />
-      </button>
-    );
-    if (col.type === 'textarea') return (
-      <div className="relative flex items-center justify-center group/tooltip">
-        <button className="text-slate-400 hover:text-blue-500 cursor-help transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-        </button>
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-max max-w-[250px] z-[60] opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-150 scale-95 group-hover/tooltip:scale-100 pointer-events-none text-left">
-          <div className="bg-slate-800 dark:bg-slate-700 text-white text-[11.5px] rounded-lg py-2.5 px-3.5 shadow-xl border border-slate-700 dark:border-slate-600">
-            <div className="font-bold text-slate-300 mb-1 flex items-center gap-1.5 uppercase tracking-wider text-[9px]">
-              <svg className="w-3 h-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {col.label}
-            </div>
-            <div className="text-slate-100 leading-relaxed whitespace-pre-wrap break-words">{cellValue || 'No remarks provided.'}</div>
-          </div>
-        </div>
-      </div>
-    );
-    if (col.type === 'user') return (
-      <div className="flex items-center justify-center gap-2">
-        <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold">
-          {String(cellValue || '?').charAt(0)}
-        </div>
-        <span>{cellValue}</span>
-      </div>
-    );
-    if (col.type === 'currency') return (
-      <span className="font-mono text-slate-800 dark:text-slate-200">
-        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(cellValue || 0)}
-      </span>
-    );
-    return <span className="font-medium">{cellValue}</span>;
   };
+
+  const handleDelete = async (row) => {
+    const ok = await confirmAction({
+      title: `Delete this ${singular.toLowerCase()}?`,
+      message: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      if (onDelete) await onDelete({ id: row.id });
+      setData((d) => d.filter((r) => r.id !== row.id));
+      notify(`${singular} deleted`, 'success');
+    } catch (err) {
+      notify('Could not delete: ' + (err.message || err), 'error');
+    }
+  };
+
+  const renderCell = (col, row) => {
+    const value = col.computed ? col.computed(row) : row[col.key];
+    switch (col.type) {
+      case 'action':
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <button onClick={() => setEditingRow(row)} className="press p-2 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-600/20" title="Edit">
+              <Icon name="edit" className="w-4 h-4" />
+            </button>
+            <button onClick={() => handleDelete(row)} className="press p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/15" title="Delete">
+              <Icon name="trash" className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      case 'date':
+        return <span className="tabular-nums">{fmtDate(value) || <span className="text-slate-300">-</span>}</span>;
+      case 'toggle':
+        return value ? <Pill tone="green">Yes</Pill> : <Pill>No</Pill>;
+      case 'currency':
+        if (col.key === 'balance') {
+          return <span className={`tabular-nums font-medium ${value > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>{inr.format(value || 0)}</span>;
+        }
+        return <span className="tabular-nums">{inr.format(value || 0)}</span>;
+      case 'textarea':
+        return value ? <span className="block max-w-[220px] truncate" title={value}>{value}</span> : <span className="text-slate-300">-</span>;
+      default:
+        if (col.key === 'index') return <span className="text-xs text-slate-400 tabular-nums">{value}</span>;
+        if (PRIMARY_KEYS.has(col.key) && value) {
+          return (
+            <span className="flex items-center gap-2.5 min-w-0">
+              <span className={`w-8 h-8 rounded-full grid place-items-center text-white text-[12px] font-semibold shrink-0 ${avatarColor(value)}`}>{String(value).trim().charAt(0).toUpperCase()}</span>
+              <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]" title={String(value)}>{value}</span>
+            </span>
+          );
+        }
+        if (col.key === 'serviceType' && value) return <Pill tone="brand">{value}</Pill>;
+        if ((col.key === 'modeOfPayment' || col.key === 'services') && value) return <Pill tone="violet">{value}</Pill>;
+        if (col.key === 'clientType') return <Pill tone={value === 'New Client' ? 'green' : 'amber'}>{value}</Pill>;
+        if (col.key === 'tags' && value) return <Pill tone="brand">{value}</Pill>;
+        if (!value && value !== 0) return <span className="text-slate-300">-</span>;
+        return <span className="block max-w-[260px] truncate" title={String(value)}>{value}</span>;
+    }
+  };
+
+  const emptyText = query ? 'No matching records' : 'Nothing here yet';
 
   return (
-    <div className="flex flex-col">
-      
+    <div className="space-y-4">
+      {strip}
+      {/* ---------- Mobile: iOS search + inset grouped list ---------- */}
+      <div className="md:hidden">
+        <div className="sticky top-0 z-10 -mx-4 px-4 pb-2 pt-1 bg-canvas/90 dark:bg-darkbg/90 backdrop-blur">
+          <div className="relative">
+            <Icon name="search" className="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setShown(MOBILE_STEP); }}
+              placeholder={`Search ${title.toLowerCase()}`}
+              className="w-full h-10 rounded-xl bg-slate-200/70 dark:bg-white/10 pl-10 pr-3 text-slate-900 dark:text-slate-100 placeholder-slate-500 outline-none"
+            />
+          </div>
+          {chips && <div className="mt-2">{chips}</div>}
+          <div className="mt-2 px-1 text-[12px] uppercase tracking-wide text-slate-500">{filtered.length.toLocaleString('en-IN')} {filtered.length === 1 ? 'record' : 'records'}</div>
+        </div>
 
-      <div className="bg-white dark:bg-darkcard rounded-xl shadow-sm border border-slate-200 dark:border-darkborder overflow-hidden flex flex-col">
-        <div className="overflow-auto max-h-[calc(100vh-160px)] md:max-h-[calc(100vh-220px)] custom-scrollbar" data-lenis-prevent>
-          <table className="hidden md:table w-full text-left border-collapse">
-            <thead className="sticky top-0 z-30 shadow-sm bg-white/95 dark:bg-darkcard/95 backdrop-blur-sm">
-              <tr className="text-slate-500">
-                {columns.map((col, idx) => (
-                  <th key={idx} className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold border-b border-slate-200 dark:border-darkborder/50 bg-white/95 dark:bg-darkcard/95">
-                    <div className="flex items-center justify-center gap-1 text-center">
-                      {col.required && <span className="text-red-400">*</span>}
-                      {col.label}
-                    </div>
+        {mobileRows.length > 0 ? (
+          <div className="rounded-2xl bg-white dark:bg-darkcard overflow-hidden shadow-sm">
+            {mobileRows.map((row, i) => {
+              const m = mobile || {};
+              const rowTitle = m.title ? m.title(row) : String(row[columns[1]?.key] ?? '');
+              const sub = m.subtitle ? m.subtitle(row) : '';
+              const right = m.right ? m.right(row) : null;
+              const badges = m.badges ? m.badges(row) : [];
+              return (
+                <button
+                  key={row.id}
+                  onClick={() => setSheetRow(row)}
+                  className="w-full flex items-center gap-3 pl-4 text-left active:bg-slate-100 dark:active:bg-white/5 animate-rise"
+                  style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
+                >
+                  <span className={`w-10 h-10 rounded-full grid place-items-center text-white text-[15px] font-semibold shrink-0 ${avatarColor(rowTitle)}`}>
+                    {(rowTitle || '?').trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className={`flex-1 min-w-0 flex items-center gap-2 py-3 pr-4 ${i < mobileRows.length - 1 ? 'border-b border-slate-100 dark:border-darkborder' : ''}`}>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[16px] font-semibold text-slate-900 dark:text-white truncate">{rowTitle || '-'}</span>
+                      {sub && <span className="block text-[13px] text-slate-500 dark:text-slate-400 truncate">{sub}</span>}
+                      {badges.length > 0 && (
+                        <span className="mt-1 flex flex-wrap gap-1">
+                          {badges.map((b) => <Pill key={b.text} tone={b.tone}>{b.text}</Pill>)}
+                        </span>
+                      )}
+                    </span>
+                    {right && (
+                      <span className="text-right shrink-0">
+                        <span className="block text-[15px] font-semibold tabular-nums text-slate-900 dark:text-white">{right.main}</span>
+                        {right.sub && <span className={`block text-[12px] tabular-nums ${right.tone === 'amber' ? 'text-amber-600' : 'text-slate-400'}`}>{right.sub}</span>}
+                      </span>
+                    )}
+                    <Icon name="chevronLeft" className="w-4 h-4 rotate-180 text-slate-300 shrink-0" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-white dark:bg-darkcard py-14 text-center">
+            <div className="text-[15px] font-medium text-slate-700 dark:text-slate-200">{emptyText}</div>
+            <div className="text-[13px] text-slate-500 mt-1">{query ? 'Try a different search.' : 'Tap + to add the first record.'}</div>
+          </div>
+        )}
+
+        {filtered.length > shown && (
+          <button onClick={() => setShown(shown + MOBILE_STEP)} className="press mt-4 w-full rounded-xl bg-white dark:bg-darkcard py-3.5 text-[16px] font-medium text-brand-600 dark:text-brand-500">
+            Show more ({(filtered.length - shown).toLocaleString('en-IN')} left)
+          </button>
+        )}
+      </div>
+
+      {/* ---------- Desktop ---------- */}
+      <div className="hidden md:block bg-white dark:bg-darkcard rounded-2xl border border-slate-200 dark:border-darkborder shadow-md shadow-slate-900/5 overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-brand-600 via-saffron-500 to-india-500" />
+        <div className="flex items-center justify-between gap-3 p-4 border-b border-slate-200 dark:border-darkborder">
+          <div className="relative w-full max-w-sm">
+            <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+              placeholder={`Search ${title.toLowerCase()}...`}
+              className="w-full h-10 rounded-xl border border-slate-300 dark:border-darkborder bg-white dark:bg-darkbg pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-600"
+            />
+          </div>
+          {chips && <div className="flex-1 min-w-0">{chips}</div>}
+          <div className="text-sm text-slate-500 dark:text-slate-400 shrink-0">
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{filtered.length.toLocaleString('en-IN')}</span> {filtered.length === 1 ? 'record' : 'records'}
+            {query && data.length !== filtered.length && <> of {data.length.toLocaleString('en-IN')}</>}
+          </div>
+        </div>
+
+        <div className="overflow-auto max-h-[calc(100vh-300px)]">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10 bg-brand-50 dark:bg-darkbg">
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.key} className={`px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-brand-700 dark:text-slate-400 border-b border-brand-100 dark:border-darkborder whitespace-nowrap ${col.type === 'action' ? 'text-right' : ''}`}>
+                    {col.label}
                   </th>
                 ))}
               </tr>
             </thead>
-            
             <tbody>
-              {paginatedData.map((row) => (
-                <tr key={row.id} className="bg-white dark:bg-darkcard border-b border-slate-100 dark:border-darkborder/40 hover:bg-slate-50/50 dark:hover:bg-darkbg/50 group">
-                  {columns.map((col, idx) => {
-                    const cellValue = col.computed ? col.computed(row) : row[col.key];
-                    return (
-                    <td key={`cell-${row.id}-${idx}`} className="px-6 py-4 text-[13px] text-slate-700 dark:text-slate-300 text-center">
-                      {col.type === 'action' ? (
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                           {renderCellContent(col, row, cellValue)}
-                        </div>
-                      ) : renderCellContent(col, row, cellValue)}
-                    </td>
-                    );
-                  })}
+              {pageRows.map((row, i) => (
+                <tr key={row.id} className="animate-rise border-b border-slate-100 dark:border-darkborder/60 even:bg-slate-50/60 dark:even:bg-white/[0.015] hover:bg-brand-50/70 dark:hover:bg-white/[0.04] transition-colors" style={{ animationDelay: `${Math.min(i, 14) * 22}ms` }}>
+                  {columns.map((col) => (
+                    <td key={col.key} className="px-4 py-3 text-[13px] text-slate-700 dark:text-slate-200">{renderCell(col, row)}</td>
+                  ))}
                 </tr>
               ))}
-              {paginatedData.length === 0 && (
+              {pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
-                    No records found.
+                  <td colSpan={columns.length} className="px-6 py-16 text-center">
+                    <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{emptyText}</div>
+                    <div className="text-xs text-slate-500 mt-1">{query ? 'Try a different search.' : 'Use "Add new" to create the first record.'}</div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-
-          {/* Mobile Cards View */}
-          <div className="md:hidden flex flex-col gap-4 p-4">
-            {paginatedData.map((row) => (
-              <div key={row.id} className="bg-white dark:bg-darkcard rounded-2xl border border-slate-200 dark:border-darkborder shadow-sm p-5 flex flex-col gap-4 relative overflow-hidden">
-                {/* Find action column if it exists */}
-                {columns.find(c => c.type === 'action') && (
-                  <div className="absolute top-4 right-4 z-10">
-                    {renderCellContent(columns.find(c => c.type === 'action'), row, null)}
-                  </div>
-                )}
-                
-                <div className="flex flex-col gap-3">
-                  {columns.filter(c => c.type !== 'action').map((col, idx) => {
-                    const cellValue = col.computed ? col.computed(row) : row[col.key];
-                    return (
-                      <div key={idx} className={`flex justify-between items-center border-b border-slate-100 dark:border-darkborder/50 pb-2 last:border-0 last:pb-0 ${idx === 0 ? 'pr-24' : ''}`}>
-                        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">{col.label}</span>
-                        <div className="text-right text-sm text-slate-800 dark:text-slate-200 font-medium max-w-[60%]">
-                          {renderCellContent(col, row, cellValue)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {paginatedData.length === 0 && (
-              <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-                No records found.
-              </div>
-            )}
-          </div>
-
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Showing <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredData.length > 0 ? startIndex + 1 : 0}-{Math.min(startIndex + rowsPerPage, filteredData.length)}</span> out of <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredData.length}</span>
-            </span>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1 text-center">
-                {renderPageNumbers()}
-              </div>
-            )}
+        <div className="flex items-center justify-between gap-4 px-4 py-3 border-t border-slate-200 dark:border-darkborder bg-slate-50/60 dark:bg-darkbg/40 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">
+            {filtered.length ? `${start + 1}-${Math.min(start + ROWS_PER_PAGE, filtered.length)}` : '0'} of {filtered.length.toLocaleString('en-IN')}
+          </span>
+          <div className="flex items-center gap-2">
+            <button disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} className="press px-3 py-1.5 rounded-lg border border-slate-300 dark:border-darkborder text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:bg-white dark:hover:bg-white/5">Previous</button>
+            <span className="text-slate-500 tabular-nums">{safePage} / {totalPages}</span>
+            <button disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)} className="press px-3 py-1.5 rounded-lg border border-slate-300 dark:border-darkborder text-slate-700 dark:text-slate-200 disabled:opacity-40 hover:bg-white dark:hover:bg-white/5">Next</button>
           </div>
+        </div>
       </div>
 
-      {/* Add Modal */}
-      {(isAddModalOpen || editingRow) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className={`bg-white dark:bg-darkcard w-full max-w-2xl rounded-xl shadow-2xl border border-slate-200 dark:border-darkborder flex flex-col overflow-hidden ${editingRow ? 'animate-[slideFromRight_0.3s_ease-out]' : 'animate-[slideFromBottom_0.3s_ease-out]'}`}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">{editingRow ? 'Edit ' : 'Add New '}{(title.endsWith('us') ? title : title.replace(/s$/, ''))}</h3>
-              <button onClick={() => { setIsAddModalOpen(false); setEditingRow(null); setNewRow({}); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[70vh] grid grid-cols-2 gap-4" data-lenis-prevent="true">
-              {columns.map(col => {
-                if (col.type === 'action') return null;
-                return (
-                  <div key={col.key} className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">{col.label} {col.required && <span className="text-red-400">*</span>}</label>
-                    <div className="flex items-center gap-2 bg-white dark:bg-darkbg border border-slate-300 dark:border-darkborder rounded-lg px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50">
-                      {col.computed || col.autoGenerate ? (
-                        <div className="w-full text-sm text-slate-500 font-medium px-1 bg-slate-50 dark:bg-darkcard/50 py-1 rounded">
-                          {col.type === 'currency' 
-                            ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(col.computed ? col.computed((editingRow || newRow)) : col.autoGenerate(data, (editingRow || newRow)) || 0)
-                            : (col.computed ? col.computed((editingRow || newRow)) : col.autoGenerate(data, (editingRow || newRow)))}
-                        </div>
-                      ) : col.type === 'select' || col.type === 'user' ? (
-                        <CustomDropdown 
-                          placeholder={`Select ${col.label}`}
-                          allowAll={false}
-                          value={(editingRow ? editingRow[col.key] : newRow[col.key]) || ''}
-                          options={col.options || []}
-                          onChange={(val) => handleModalChange(col.key, val)}
-                        />
-                      ) : col.type === 'toggle' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleModalChange(col.key, !(editingRow ? editingRow[col.key] : newRow[col.key]))}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${(editingRow ? editingRow[col.key] : newRow[col.key]) ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`}
-                        >
-                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${(editingRow ? editingRow[col.key] : newRow[col.key]) ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                      ) : col.type === 'textarea' ? (
-                        <textarea 
-                          rows="2"
-                          placeholder={`Enter ${col.label}...`}
-                          value={(editingRow ? editingRow[col.key] : newRow[col.key]) || ''}
-                          onChange={(e) => handleModalChange(col.key, e.target.value)}
-                          className="w-full min-w-0 text-sm bg-transparent border-none focus:ring-0 p-0 text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 outline-none resize-none"
-                        />
-                      ) : (
-                        <input 
-                          type={col.type === 'date' ? 'date' : col.type === 'currency' ? 'number' : 'text'} 
-                          placeholder={col.type === 'date' ? '' : `Enter ${col.label}`}
-                          value={(editingRow ? editingRow[col.key] : newRow[col.key]) || ''}
-                          onChange={(e) => handleModalChange(col.key, e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleAddRow(e); }}
-                          className="w-full min-w-0 text-sm bg-transparent border-none focus:ring-0 p-0 text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 outline-none"
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-darkborder bg-slate-50 dark:bg-darkcard/50">
-              <button onClick={() => { setIsAddModalOpen(false); setEditingRow(null); setNewRow({}); }} className="px-5 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
-              <button onClick={handleSaveRow} className="px-5 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors">Save {(title.endsWith('us') ? title : title.replace(/s$/, ''))}</button>
-            </div>
-          </div>
-        </div>
+      {sheetRow && (
+        <ActionSheet
+          title={mobile?.title ? mobile.title(sheetRow) : singular}
+          message={mobile?.subtitle ? mobile.subtitle(sheetRow) : undefined}
+          onClose={() => setSheetRow(null)}
+          actions={[
+            { label: 'Edit', onClick: () => setEditingRow(sheetRow) },
+            { label: 'Delete', destructive: true, onClick: () => handleDelete(sheetRow) },
+          ]}
+        />
+      )}
+
+      {modalOpen && (
+        <Drawer
+          compact={columns.filter((c) => c.type !== 'action' && c.key !== 'index').length <= 4}
+          title={`${editingRow ? 'Edit' : 'New'} ${singular.toLowerCase()}`}
+          subtitle={editingRow ? 'Update the details below and save.' : 'Fill in the details below to add a record.'}
+          onClose={closeModal}
+          onSubmit={handleSave}
+          saving={saving}
+          submitLabel={editingRow ? 'Save changes' : `Add ${singular.toLowerCase()}`}
+        >
+          <RecordForm columns={columns} values={formRow} onChange={setField} data={data} />
+        </Drawer>
       )}
     </div>
   );
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

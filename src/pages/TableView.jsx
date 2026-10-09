@@ -1,36 +1,61 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import SubTable from '../components/SubTable';
 import AdvancedTable from '../components/AdvancedTable';
-import expensesData from '../data/expenses.json';
-import financialYearsData from '../data/financialYears.json';
-import settingsData from '../data/settings.json';
-import clientsData from '../data/clients.json';
-import serviceStatusData from '../data/serviceStatus.json';
+import { ListSkeleton } from '../components/Skeleton';
+import { TABLES, loadTable, saveRow, deleteRow } from '../lib/tables';
 
 export default function TableView() {
   const { tableName } = useParams();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  const [state, setState] = useState({ key: null, rows: null, lookups: {}, error: null });
+  const valid = !!TABLES[tableName];
 
   // Enforce authentication
-  if (!user.email) {
-    navigate('/login');
-    return null;
+  useEffect(() => {
+    if (!user.email) navigate('/login');
+  }, [user.email, navigate]);
+
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    loadTable(tableName)
+      .then(({ rows, lookups }) => !cancelled && setState({ key: tableName, rows, lookups, error: null }))
+      .catch((e) => !cancelled && setState({ key: tableName, rows: [], lookups: {}, error: e.message }));
+    return () => { cancelled = true; };
+  }, [tableName, valid]);
+
+  if (!user.email) return null;
+  if (!valid) return <Navigate to="/app/dashboard" replace />;
+  if (state.key !== tableName) {
+    return <ListSkeleton />;
+  }
+  if (state.error) {
+    return (
+      <div className="rounded-2xl bg-white dark:bg-darkcard border border-red-200 dark:border-red-500/30 py-14 px-6 text-center">
+        <div className="text-[15px] font-semibold text-red-600">Could not load data</div>
+        <div className="mt-1 text-sm text-slate-500">{state.error}</div>
+      </div>
+    );
   }
 
-  // Mock users
-  const users = ['Fasal', 'Atul', 'Rahul', 'Priya', 'Amit'];
+  const L = state.lookups;
+  const names = (list, key = 'name') => (list || []).map((x) => x[key]);
+  const onSave = (row, isNew, existing) => saveRow(tableName, row, isNew, L, existing);
+  const onDelete = (row) => deleteRow(tableName, row.id);
 
   const serviceStatusColumns = [
     { key: 'index', label: 'Index', type: 'text' },
-    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: settingsData.modeOfPayment.map(m => m.name) },
+    { key: 'clientName', label: 'Client', type: 'select', options: names(L.clients) },
+    { key: 'serviceType', label: 'Type Of Service', type: 'select', options: names(L.services) },
+    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: names(L.modes) },
     { key: 'fees', label: 'Fees', type: 'currency' },
     { key: 'received', label: 'Received', type: 'currency' },
     { key: 'balance', label: 'Balance', type: 'currency', computed: (row) => (Number(row.fees || 0) - Number(row.received || 0)) },
-    { key: 'assignedTo', label: 'Assigned To', type: 'user', options: users },
+    { key: 'assignedTo', label: 'Assigned To', type: 'text' },
     { key: 'dateOfService', label: 'Date Of Service', type: 'date' },
-    { key: 'tags', label: 'Tags', type: 'select', options: settingsData.tags.map(t => t.name) },
+    { key: 'tags', label: 'Tags', type: 'select', options: names(L.tags) },
     { key: 'remarks', label: 'Remarks', type: 'textarea' },
     { key: 'paymentStatus', label: 'Payment Status', type: 'toggle' },
     { key: 'jobCompleted', label: 'Job Completed', type: 'toggle' },
@@ -44,8 +69,8 @@ export default function TableView() {
     { key: 'date', label: 'Date', type: 'date', required: false },
     { key: 'expenseName', label: 'Expense Name', type: 'text', required: true },
     { key: 'expenseAmount', label: 'Expense Amount', type: 'currency', required: true },
-    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: settingsData.modeOfPayment.map(m => m.name) },
-    { key: 'services', label: 'Services', type: 'select', options: settingsData.serviceTypes.map(s => s.name) },
+    { key: 'modeOfPayment', label: 'Mode Of Payment', type: 'select', options: names(L.modes) },
+    { key: 'services', label: 'Services', type: 'select', options: names(L.services) },
     { key: 'notes', label: 'Notes', type: 'text' },
     { key: 'actions', label: 'Action', type: 'action' }
   ];
@@ -60,17 +85,16 @@ export default function TableView() {
 
   const clientColumns = [
     { key: 'index', label: 'Index', type: 'text' },
-    { key: 'clientId', label: 'ID', type: 'text' },
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'fileNumber', label: 'File Number', type: 'text' },
     { key: 'email', label: 'Email', type: 'email' },
     { key: 'phoneNumber', label: 'Phone Number', type: 'text' },
     { key: 'address', label: 'Address', type: 'text' },
     { key: 'clientType', label: 'Client Type', type: 'select', options: ['New Client', 'Old Client'] },
-    { key: 'clientYear', label: 'Client Year', type: 'select', options: financialYearsData.map(y => y.label) },
-    { 
-      key: 'clientNumber', 
-      label: 'New Client Number', 
+    { key: 'clientYear', label: 'Client Year', type: 'select', options: names(L.years, 'label') },
+    {
+      key: 'clientNumber',
+      label: 'New Client Number',
       type: 'text',
       autoGenerate: (data, newRow) => {
         if (newRow.clientType === 'New Client') {
@@ -86,59 +110,134 @@ export default function TableView() {
         return '';
       }
     },
-    { 
-      key: 'clientCode', 
-      label: 'Client Code', 
+    {
+      key: 'clientCode',
+      label: 'Client Code',
       type: 'text',
       autoGenerate: (data, newRow) => {
         if (!newRow.clientYear) return '';
-        
-        // 1. Extract the YY YY from "YYYY-YYYY"
-        // e.g. "2021-2022" -> ["2021", "2022"] -> "2122"
+
+        // Year labels look like "2026-27" -> prefix "2627"
         const parts = String(newRow.clientYear).split('-');
         if (parts.length !== 2) return '';
-        
-        const yy1 = parts[0].slice(-2);
-        const yy2 = parts[1].slice(-2);
-        const prefix = yy1 + yy2;
-        
-        // 2. Find the highest global sequence number (last 6 digits of any existing code)
+
+        const prefix = parts[0].slice(-2) + parts[1].slice(-2);
+
+        // Highest global sequence number (last 6 digits of any existing code)
         let maxSeq = 0;
         data.forEach(c => {
           if (c.clientCode && String(c.clientCode).length >= 6) {
-            // Extract the last 6 characters
-            const seqStr = String(c.clientCode).slice(-6);
-            const num = parseInt(seqStr, 10);
-            if (!isNaN(num) && num > maxSeq) {
-              maxSeq = num;
-            }
+            const num = parseInt(String(c.clientCode).slice(-6), 10);
+            if (!isNaN(num) && num > maxSeq) maxSeq = num;
           }
         });
-        
-        // 3. Combine prefix with new padded sequence
+
         return prefix + String(maxSeq + 1).padStart(6, '0');
       }
     },
     { key: 'actions', label: 'Action', type: 'action' }
   ];
 
+  const inr = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
+  const fmtDate = (v) => (v ? String(v).split('-').reverse().join('/') : '');
+  const join = (...parts) => parts.filter(Boolean).join(' · ');
+
+  // How each record looks as a row in the mobile list
+  const mobileConfigs = {
+    'service-status': {
+      title: (r) => r.clientName,
+      subtitle: (r) => join(r.serviceType, fmtDate(r.dateOfService)),
+      right: (r) => {
+        const bal = Number(r.fees || 0) - Number(r.received || 0);
+        return { main: inr(r.fees), sub: bal > 0 ? `Due ${inr(bal)}` : 'Paid', tone: bal > 0 ? 'amber' : 'slate' };
+      },
+      badges: (r) => [
+        ...(r.jobCompleted ? [{ text: 'Completed', tone: 'green' }] : [{ text: 'In progress', tone: 'amber' }]),
+        ...(r.tags ? [{ text: r.tags, tone: 'brand' }] : []),
+      ],
+    },
+    clients: {
+      title: (r) => r.name,
+      subtitle: (r) => join(r.fileNumber, r.phoneNumber, r.clientYear),
+      badges: (r) => [{ text: r.clientType, tone: r.clientType === 'New Client' ? 'green' : 'amber' }],
+    },
+    expense: {
+      title: (r) => r.expenseName,
+      subtitle: (r) => join(fmtDate(r.date), r.modeOfPayment, r.notes),
+      right: (r) => ({ main: inr(r.expenseAmount) }),
+    },
+    'financial-years': {
+      title: (r) => r.label,
+      subtitle: (r) => join(fmtDate(r.startDate), fmtDate(r.endDate)),
+    },
+  };
+
+  const compactINR = (n) => {
+    const v = Math.abs(n);
+    if (v >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+    if (v >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
+    return inr(n);
+  };
+  const sum = (rows, f) => rows.reduce((s, r) => s + (Number(f(r)) || 0), 0);
+  const num = (n) => n.toLocaleString('en-IN');
+
+  // Summary cards + filter chips above each table (they follow the active filter and search)
+  const insights = {
+    'service-status': {
+      stats: (rows) => [
+        { label: 'Entries', value: num(rows.length) },
+        { label: 'Billed', value: compactINR(sum(rows, (r) => r.fees)), tone: 'violet' },
+        { label: 'Collected', value: compactINR(sum(rows, (r) => r.received)), tone: 'green' },
+        { label: 'Pending', value: compactINR(sum(rows, (r) => Math.max(0, (r.fees || 0) - (r.received || 0)))), tone: 'amber' },
+      ],
+      filters: [
+        { label: 'All' },
+        { label: 'Payment pending', test: (r) => (r.fees || 0) > (r.received || 0) },
+        { label: 'Fully paid', test: (r) => (r.fees || 0) <= (r.received || 0) },
+        { label: 'In progress', test: (r) => !r.jobCompleted },
+        { label: 'Completed', test: (r) => r.jobCompleted },
+      ],
+    },
+    clients: {
+      stats: (rows) => [
+        { label: 'Clients', value: num(rows.length) },
+        { label: 'New clients', value: num(rows.filter((r) => r.clientType === 'New Client').length), tone: 'green' },
+        { label: 'Old clients', value: num(rows.filter((r) => r.clientType !== 'New Client').length), tone: 'amber' },
+      ],
+      filters: [
+        { label: 'All' },
+        { label: 'New clients', test: (r) => r.clientType === 'New Client' },
+        { label: 'Old clients', test: (r) => r.clientType !== 'New Client' },
+      ],
+    },
+    expense: {
+      stats: (rows) => [
+        { label: 'Entries', value: num(rows.length) },
+        { label: 'Total spent', value: compactINR(sum(rows, (r) => r.expenseAmount)), tone: 'rose' },
+        { label: 'Average', value: compactINR(rows.length ? sum(rows, (r) => r.expenseAmount) / rows.length : 0), tone: 'violet' },
+      ],
+    },
+  };
+
+  const common = { showToolbar: true, initialData: state.rows, onSave, onDelete, mobile: mobileConfigs[tableName], ...insights[tableName] };
+
   // Render specific table based on the route
   const renderTable = () => {
-    switch(tableName) {
+    switch (tableName) {
       case 'service-status':
-        return <AdvancedTable key="service-status" title="Service Status" columns={serviceStatusColumns} showToolbar={true} initialData={serviceStatusData} />;
+        return <AdvancedTable key={tableName} title="Service Status" columns={serviceStatusColumns} {...common} />;
       case 'clients':
-        return <AdvancedTable key="clients" title="Clients" columns={clientColumns} showToolbar={true} initialData={clientsData} />;
+        return <AdvancedTable key={tableName} title="Clients" columns={clientColumns} {...common} />;
       case 'expense':
-        return <AdvancedTable key="expense" title="Expense" columns={expenseColumns} showToolbar={true} initialData={expensesData} />;
+        return <AdvancedTable key={tableName} title="Expense" columns={expenseColumns} {...common} />;
       case 'financial-years':
-        return <AdvancedTable key="financial-years" title="Financial Years" columns={financialColumns} showToolbar={true} initialData={financialYearsData} />;
+        return <AdvancedTable key={tableName} title="Financial Years" columns={financialColumns} {...common} />;
       case 'service-types':
-        return <SubTable key="service-types" title="Service Types" itemLabel="Type Of Service" initialData={settingsData.serviceTypes} />;
+        return <SubTable key={tableName} title="Service Types" itemLabel="Type Of Service" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
       case 'mode-of-payment':
-        return <SubTable key="mode-of-payment" title="Mode Of Payment" itemLabel="Payment" initialData={settingsData.modeOfPayment} />;
+        return <SubTable key={tableName} title="Mode Of Payment" itemLabel="Payment" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
       case 'tags':
-        return <SubTable key="tags" title="Tags" itemLabel="Tag Name" initialData={settingsData.tags} />;
+        return <SubTable key={tableName} title="Tags" itemLabel="Tag Name" initialData={state.rows} onSave={onSave} onDelete={onDelete} />;
       default:
         return <Navigate to="/app/dashboard" replace />;
     }

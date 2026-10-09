@@ -1,115 +1,93 @@
-
-
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { toggleTheme, isDark, currentEmail } from '../lib/theme';
+import Icon from './Icon';
+import { NAV_ITEMS } from './nav';
 
-const routeTitleMap = {
-  '/app/dashboard': 'Dashboard',
-  '/app/tables/service-status': 'Service Status',
-  '/app/tables/clients': 'Clients',
-  '/app/tables/expense': 'Expense',
-  '/app/tables/financial-years': 'Financial Years',
-  '/app/tables/service-types': 'Service Types',
-  '/app/tables/mode-of-payment': 'Mode Of Payment',
-  '/app/tables/tags': 'Tags',
-};
-
-export default function Header() {
+export default function Header({ scrolled }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dark, setDark] = useState(isDark);
 
-  // Compute title dynamically from path
-  const currentTitle = routeTitleMap[location.pathname] || (() => {
-    if (location.pathname.startsWith('/app/tables/')) {
-      const slug = location.pathname.replace('/app/tables/', '');
-      return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    }
-    return 'Dashboard';
-  })();
+  const current = NAV_ITEMS.find((i) => i.path === location.pathname) || NAV_ITEMS[0];
+  const isTable = location.pathname.startsWith('/app/tables/');
+  const email = currentEmail();
+  const openAdd = () => window.dispatchEvent(new CustomEvent('open-add-modal'));
 
-  useEffect(() => {
-    setIsDarkMode(document.documentElement.classList.contains('dark'));
-  }, []);
-
-  const toggleDarkMode = () => {
-    const html = document.documentElement;
-    if (html.classList.contains('dark')) {
-      html.classList.remove('dark');
-      localStorage.theme = 'light';
-      setIsDarkMode(false);
-    } else {
-      html.classList.add('dark');
-      localStorage.theme = 'dark';
-      setIsDarkMode(true);
-    }
-  };
-
-  const handleLogout = async () => {
+  const logout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('currentUser');
     navigate('/login');
   };
 
   return (
-    <header className="h-16 w-full rounded-2xl border border-slate-200/90 dark:border-darkborder bg-white/90 dark:bg-darkcard/90 backdrop-blur-md flex items-center justify-between px-6 shadow-sm transition-all duration-300">
-      {/* Page Title at Start of Header */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-          {currentTitle}
-        </h1>
-      </div>
-
-      <div className="flex items-center gap-3">
-        {/* Add Row Button - circular icon button, only visible on tables pages */}
-        {location.pathname.startsWith('/app/tables/') && (
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-add-modal'))}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-transform hover:scale-105 active:scale-95"
-            title="Add Row"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        )}
-
-        {/* Notification Bell */}
-        <button className="w-10 h-10 rounded-full flex items-center justify-center bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-        </button>
-        
-        {/* Dark Mode */}
-        <button onClick={toggleDarkMode} className="w-10 h-10 rounded-full flex items-center justify-center bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-colors" title={isDarkMode ? 'Light Mode' : 'Dark Mode'}>
-          {isDarkMode ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>}
-        </button>
-        
-        {/* Settings / Dropdown */}
-        <div className="relative">
-          <button 
-            onClick={() => setIsSettingsMenuOpen(!isSettingsMenuOpen)}
-            onBlur={() => setTimeout(() => setIsSettingsMenuOpen(false), 200)}
-            className="w-10 h-10 rounded-full flex items-center justify-center bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          </button>
-          
-          {isSettingsMenuOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-darkcard rounded-xl shadow-lg border border-slate-200 dark:border-darkborder py-1 z-[150] animate-in fade-in slide-in-from-top-2 duration-200">
-              <button onClick={handleLogout} className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                Log out
+    <>
+      {/* Mobile: compact nav bar; the title fades in once the large title scrolls away */}
+      <header className={`md:hidden glass pt-safe z-20 shrink-0 border-b transition-colors duration-200 ${scrolled ? 'border-slate-200/80 dark:border-darkborder' : 'border-transparent'}`}>
+        <div className="h-[52px] grid grid-cols-[1fr_auto_1fr] items-center px-4">
+          <div />
+          <span className={`font-display text-[17px] font-semibold text-slate-900 dark:text-white transition-all duration-200 ${scrolled ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>{current.name}</span>
+          <div className="flex justify-end">
+            {isTable && (
+              <button onClick={openAdd} className="press w-9 h-9 rounded-full bg-brand-600 text-white grid place-items-center shadow-md shadow-brand-600/30" aria-label="Add new">
+                <Icon name="plus" className="w-5 h-5" strokeWidth={2.4} />
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Desktop */}
+      <header className="hidden md:block shrink-0 glass border-b border-slate-200/80 dark:border-darkborder z-20">
+        <div className="h-[3px] bg-gradient-to-r from-saffron-500 via-brand-600 to-india-500" />
+        <div className="h-[66px] flex items-center justify-between gap-4 px-8">
+        <div className="min-w-0 flex items-center gap-3.5">
+          <span className={`w-11 h-11 rounded-2xl grid place-items-center text-white shadow-lg ${current.tint}`}>
+            <Icon name={current.icon} className="w-[22px] h-[22px]" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="font-display text-[22px] font-bold tracking-tight text-slate-900 dark:text-white truncate leading-tight">{current.name}</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{current.subtitle}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isTable && (
+            <button onClick={openAdd} title="Add new" aria-label="Add new" className="press mr-2 w-11 h-11 grid place-items-center rounded-full bg-gradient-to-br from-saffron-500 to-saffron-600 text-white shadow-lg shadow-saffron-500/40 hover:scale-105 transition-transform">
+              <Icon name="plus" className="w-5 h-5" strokeWidth={2.6} />
+            </button>
+          )}
+
+          <button onClick={() => setDark(toggleTheme())} className="press w-10 h-10 grid place-items-center rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5" title={dark ? 'Light mode' : 'Dark mode'}>
+            <Icon name={dark ? 'sun' : 'moon'} className="w-[19px] h-[19px]" />
+          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              onBlur={() => setTimeout(() => setMenuOpen(false), 150)}
+              className="press w-10 h-10 rounded-full bg-gradient-to-br from-brand-600 to-brand-700 text-white grid place-items-center text-sm font-semibold uppercase ring-2 ring-white dark:ring-darkcard shadow"
+            >
+              {email.charAt(0) || '?'}
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200 dark:border-darkborder bg-white dark:bg-darkcard shadow-xl py-1.5 z-50 animate-pop origin-top-right">
+                <div className="px-4 py-2.5 border-b border-slate-100 dark:border-darkborder">
+                  <div className="text-[11px] text-slate-400">Signed in as</div>
+                  <div className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{email || 'Unknown'}</div>
+                </div>
+                <button onClick={logout} className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
+                  <Icon name="logout" className="w-4 h-4" />
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        </div>
+      </header>
+    </>
   );
 }
-
-
-
-
